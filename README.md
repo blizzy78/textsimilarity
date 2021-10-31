@@ -13,10 +13,16 @@ such as names of variables changed in source code.
 Command Line Usage
 ------------------
 
-The `cmd/` folder provides a standalone command line utility. You can build it like this:
+The `cmd/textsimilarity/` folder provides a standalone command line utility. You can build it like this:
 
 ```
-go build -o textsimilarity ./cmd/
+go build -o textsimilarity ./cmd/textsimilarity/
+```
+
+To install globally, run the following:
+
+```
+go install github.com/blizzy78/textsimilarity/cmd/textsimilarity@latest
 ```
 
 For example, you can now run it against [restic] source code, with [icdiff] as a diff tool:

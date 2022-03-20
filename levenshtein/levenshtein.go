@@ -11,7 +11,7 @@ var peqPool = sync.Pool{
 	},
 }
 
-//nolint:wsl // copied code
+//nolint:wsl,varnamelen // copied code
 func m64(a string, b string, peq []uint64) int {
 	pv := ^uint64(0)
 	mv := uint64(0)
@@ -51,7 +51,7 @@ func min(x, y int) int {
 	return y
 }
 
-//nolint:wsl,gocognit,cyclop // copied code
+//nolint:wsl,gocognit,cyclop,varnamelen // copied code
 func mx(a string, b string, peq []uint64) int {
 	s1 := []rune(a)
 	s2 := []rune(b)
@@ -133,7 +133,7 @@ func mx(a string, b string, peq []uint64) int {
 	return int(sc)
 }
 
-//nolint:wsl // copied code
+//nolint:wsl,varnamelen // copied code
 func Distance(a, b string) int {
 	peq := peqPool.Get().([]uint64) //nolint:forcetypeassert // we know what's in the pool
 	defer peqPool.Put(peq)          //nolint:staticcheck // slice header is pointer-like

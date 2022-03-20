@@ -31,6 +31,7 @@ linters:
     - tparallel
     - unconvert
     - unparam
+    - varnamelen
     - wastedassign
     - wrapcheck
     - wsl
@@ -47,7 +48,27 @@ linters-settings:
     require-specific: true
   unused:
     go: 1.17
+  varnamelen:
+    check-return: true
+    ignore-type-assert-ok: true
+    ignore-map-index-ok: true
+    ignore-chan-recv-ok: true
+    ignore-decls:
+      - f *testing.F
+      - is *is.I
+      - t testing.T
+      - t testingTOrB
   wrapcheck:
+    ignoreSigs:
+      - .Errorf(
+      - errors.New(
+      - errors.Unwrap(
+      - .Wrap(
+      - .Wrapf(
+      - .WithMessage(
+      - .WithMessagef(
+      - .WithStack(
+      - .Err()
     ignorePackageGlobs:
       - github.com/blizzy78/textsimilarity*
       - golang.org/x/sync/errgroup*

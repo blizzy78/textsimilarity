@@ -3,6 +3,8 @@ package textsimilarity
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -342,6 +344,27 @@ func TestLineIndex(t *testing.T) {
 			is.Equal(level, test.wantLevel)
 		})
 	}
+}
+
+func TestLineIndex_Large(t *testing.T) {
+	is := is.New(t)
+
+	osFile, _ := os.Open("testdata/lipsum.txt")
+	defer osFile.Close()
+
+	data, _ := io.ReadAll(osFile)
+	texts := strings.Split(string(data), "\n")
+
+	file := newFileToCheck(t, texts, make([]bool, len(texts)))
+
+	needle := newFileLine(texts[50][:10] + "x" + texts[50][10:])
+
+	opts := Options{MaxEditDistance: 2}
+
+	line, level := lineIndex(context.Background(), file, needle, 0, &opts)
+
+	is.Equal(line, 50)
+	is.Equal(level, SimilarSimilarityLevel)
 }
 
 func TestExpandOccurrences(t *testing.T) {

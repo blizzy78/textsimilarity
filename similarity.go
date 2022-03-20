@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -216,7 +215,6 @@ func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Si
 	progressCh := make(chan Progress)
 	filesDone := int32(0)
 	startTime := time.Now()
-	semaphore := make(chan struct{}, runtime.NumCPU())
 
 	advanceAndSendProgress := func(file *File) {
 		if contextDone(ctx) {
@@ -241,11 +239,6 @@ func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Si
 
 		go func(file *fileToCheck) {
 			defer grp.Done()
-
-			semaphore <- struct{}{}
-			defer func() {
-				<-semaphore
-			}()
 
 			if contextDone(ctx) {
 				return
@@ -544,13 +537,111 @@ func acceptLine(line *fileLine, opts *Options) bool {
 
 // lineIndex returns the line index and similarity level of needle in file, starting with startLine, according to opts.
 // If no match can be found, -1 is returned for the line index.
-func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLine int, opts *Options) (int, SimilarityLevel) {
+func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLine int, opts *Options) (int, SimilarityLevel) { //nolint:gocognit,cyclop // concurrent setup is complex
+	linesToCheck := len(file.f.lines) - startLine
+
+	if linesToCheck <= 0 {
+		return -1, differentSimilarityLevel
+	}
+
+	const chunkSize = 10
+
+	chunks := linesToCheck / chunkSize
+	if chunks*chunkSize < linesToCheck {
+		chunks++
+	}
+
+	if chunks == 1 {
+		return lineIndexEnd(ctx, file, needle, startLine, len(file.f.lines), opts)
+	}
+
+	startLines := make([]int, chunks)
+	for i := range startLines {
+		startLines[i] = chunkSize*i + startLine
+	}
+
+	endLines := make([]int, chunks)
+	for i := range endLines {
+		endLines[i] = chunkSize*(i+1) + startLine
+	}
+
+	if endLines[len(endLines)-1] > len(file.f.lines) {
+		endLines[len(endLines)-1] = len(file.f.lines)
+	}
+
+	contexts := make([]context.Context, chunks)
+	cancels := make([]context.CancelFunc, chunks)
+
+	for i := range contexts {
+		contexts[i], cancels[i] = context.WithCancel(ctx)
+	}
+
+	defer func() {
+		for _, cancel := range cancels {
+			cancel()
+		}
+	}()
+
+	type result struct {
+		line  int
+		level SimilarityLevel
+	}
+
+	resultCh := make(chan result)
+
+	grp := sync.WaitGroup{}
+	grp.Add(chunks)
+
+	for chunkIdx := 0; chunkIdx < chunks; chunkIdx++ {
+		go func(ctx context.Context, startLine int, endLine int) {
+			defer grp.Done()
+
+			line, level := lineIndexEnd(ctx, file, needle, startLine, endLine, opts)
+			resultCh <- result{line, level}
+		}(contexts[chunkIdx], startLines[chunkIdx], endLines[chunkIdx])
+	}
+
+	go func() {
+		defer close(resultCh)
+
+		grp.Wait()
+	}()
+
+	smallestResult := result{
+		line:  -1,
+		level: differentSimilarityLevel,
+	}
+
+	for res := range resultCh {
+		if res.line < 0 {
+			continue
+		}
+
+		if smallestResult.line >= 0 && res.line >= smallestResult.line {
+			continue
+		}
+
+		smallestResult = res
+
+		for i, startLine := range startLines {
+			if startLine > res.line {
+				cancels[i]()
+			}
+		}
+	}
+
+	return smallestResult.line, smallestResult.level
+}
+
+// lineIndexEnd returns the line index and similarity level of needle in file, starting with startLine,
+// ending with endLine (excluding), according to opts. If no match can be found, -1 is returned for the line index.
+func lineIndexEnd(ctx context.Context, file *fileToCheck, needle *fileLine, startLine int, endLine int, opts *Options) (int, SimilarityLevel) {
 	for lineIdx := startLine; ; lineIdx++ {
 		if contextDone(ctx) {
 			return -1, differentSimilarityLevel
 		}
 
-		if lineIdx >= len(file.f.lines) {
+		if lineIdx >= endLine {
 			return -1, differentSimilarityLevel
 		}
 

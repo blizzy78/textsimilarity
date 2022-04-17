@@ -202,7 +202,7 @@ func printSimilarities(ctx context.Context, sims []*textsimilarity.Similarity, o
 
 // dumpOrDiff prints sim's text:
 // If sim.Level==textsimilarity.EqualSimilarityLevel and opts.printEqual==true, it will dump the first occurrence's text.
-// If sim.Level==textsimilarity.SimilarSimilarityLevel and opts.diffTool!="", it will run opts.diffTool to print differences.
+// If sim.Level==textsimilarity.SimilarSimilarityLevel and opts.diffTool!=nil, it will run opts.diffTool to print differences.
 func dumpOrDiff(ctx context.Context, sim *textsimilarity.Similarity, opts cmdOptions) error {
 	switch {
 	case sim.Level == textsimilarity.EqualSimilarityLevel && opts.printEqual:
@@ -251,7 +251,11 @@ func diff(ctx context.Context, sim *textsimilarity.Similarity, opts cmdOptions) 
 		return err
 	}
 
-	defer os.Remove(path1)
+	defer func() {
+		if err := os.Remove(path1); err != nil {
+			fmt.Fprintln(os.Stderr, fmt.Errorf("remove temporary file %s: %w", path1, err).Error())
+		}
+	}()
 
 	var text2 string
 
@@ -274,7 +278,11 @@ func diff(ctx context.Context, sim *textsimilarity.Similarity, opts cmdOptions) 
 		return err
 	}
 
-	defer os.Remove(path2)
+	defer func() {
+		if err := os.Remove(path2); err != nil {
+			fmt.Fprintln(os.Stderr, fmt.Errorf("remove temporary file %s: %w", path2, err).Error())
+		}
+	}()
 
 	return runDiffTool(ctx, path1, path2, opts)
 }
@@ -315,10 +323,25 @@ func writeTempFile(text string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create: %w", err)
 	}
-	defer file.Close()
+
+	closed := false
+
+	defer func() {
+		if closed {
+			return
+		}
+
+		_ = file.Close()
+	}()
 
 	if _, err = file.WriteString(text); err != nil {
 		return "", fmt.Errorf("write: %w", err)
+	}
+
+	closed = true
+
+	if err = file.Close(); err != nil {
+		return "", fmt.Errorf("close: %w", err)
 	}
 
 	return file.Name(), nil
@@ -330,7 +353,7 @@ func fileText(path string, startLine int, endLine int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("open: %w", err)
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck,gosec // file is being read
 
 	textBuf := strings.Builder{}
 

@@ -1,4 +1,4 @@
-package levenshtein
+package levenshtein //nolint:stylecheck // copied code
 
 import "sync"
 
@@ -133,7 +133,7 @@ func mx(a string, b string, peq []uint64) int {
 	return int(sc)
 }
 
-//nolint:wsl,varnamelen // copied code
+//nolint:wsl,varnamelen,revive // copied code
 func Distance(a, b string) int {
 	peq := peqPool.Get().([]uint64) //nolint:forcetypeassert // we know what's in the pool
 	defer peqPool.Put(peq)          //nolint:staticcheck // slice header is pointer-like

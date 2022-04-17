@@ -350,7 +350,7 @@ func TestLineIndex_Large(t *testing.T) {
 	is := is.New(t)
 
 	osFile, _ := os.Open("testdata/lipsum.txt")
-	defer osFile.Close()
+	defer osFile.Close() //nolint:errcheck,gosec // file is being read
 
 	data, _ := io.ReadAll(osFile)
 	texts := strings.Split(string(data), "\n")

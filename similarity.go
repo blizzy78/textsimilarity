@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -215,6 +216,7 @@ func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Si
 	progressCh := make(chan Progress)
 	filesDone := int32(0)
 	startTime := time.Now()
+	semaphore := make(chan struct{}, runtime.NumCPU())
 
 	advanceAndSendProgress := func(file *File) {
 		if contextDone(ctx) {
@@ -239,6 +241,11 @@ func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Si
 
 		go func(file *fileToCheck) {
 			defer grp.Done()
+
+			semaphore <- struct{}{}
+			defer func() {
+				<-semaphore
+			}()
 
 			if contextDone(ctx) {
 				return
@@ -695,7 +702,7 @@ func levenshteinDistance(line1 string, line2 string, slow bool) int {
 }
 
 // load loads all lines from f, and sets up f accordingly, such as setting flags.
-func (f *File) load(opts *Options) error { //nolint:gocognit // it's complicated
+func (f *File) load(opts *Options) error {
 	f.lines = map[int]*fileLine{}
 
 	reader := bufio.NewReader(f.R)
@@ -705,43 +712,48 @@ func (f *File) load(opts *Options) error { //nolint:gocognit // it's complicated
 		text, err := tsio.ReadLine(reader, &buf)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				break
+				return nil
 			}
 
 			return fmt.Errorf("read line: %w", err)
 		}
 
-		line := fileLine{
-			text:        text,
-			textTrimmed: strings.TrimSpace(text),
-		}
-
-		line.length = len([]rune(line.text))
-		line.lengthTrimmed = len([]rune(line.textTrimmed))
-
-		if needsSlowLevenshtein(line.text) {
-			line.flags |= slowLevenshteinLineFlag
-		}
-
-		if line.lengthTrimmed == 0 {
-			line.flags |= blankLineFlag
-		}
-
-		if opts.IgnoreLineRegex != nil {
-			text = line.text
-			if opts.flagSet(IgnoreWhitespaceFlag) {
-				text = line.textTrimmed
-			}
-
-			if opts.IgnoreLineRegex.MatchString(text) {
-				line.flags |= matchesIgnoreRegexLineFlag
-			}
-		}
-
+		line := textToFileLine(text, opts)
 		f.lines[lineIdx] = &line
 	}
+}
 
-	return nil
+func textToFileLine(text string, opts *Options) fileLine {
+	line := fileLine{
+		text:        text,
+		textTrimmed: strings.TrimSpace(text),
+	}
+
+	line.length = len([]rune(line.text))
+	line.lengthTrimmed = len([]rune(line.textTrimmed))
+
+	if needsSlowLevenshtein(line.text) {
+		line.flags |= slowLevenshteinLineFlag
+	}
+
+	if line.lengthTrimmed == 0 {
+		line.flags |= blankLineFlag
+	}
+
+	if opts.IgnoreLineRegex == nil {
+		return line
+	}
+
+	text = line.text
+	if opts.flagSet(IgnoreWhitespaceFlag) {
+		text = line.textTrimmed
+	}
+
+	if opts.IgnoreLineRegex.MatchString(text) {
+		line.flags |= matchesIgnoreRegexLineFlag
+	}
+
+	return line
 }
 
 // needsSlowLevenshtein returns whether a slower Levenshtein distance comparison must be used to compare s

@@ -50,8 +50,13 @@ type cmdOptions struct {
 	simOpts textsimilarity.Options
 }
 
-// errCanceled is returned when the context is canceled.
-var errCanceled = errors.New("")
+var (
+	// errCanceled is returned when the context is canceled.
+	errCanceled = errors.New("")
+
+	// errNoFiles is returned when no files are specified.
+	errNoFiles = errors.New("no files given")
+)
 
 func main() {
 	opts, err := options()
@@ -59,17 +64,20 @@ func main() {
 		panic(err)
 	}
 
-	if err := run(flag.Args(), opts); err != nil {
+	ret, err := run(flag.Args(), opts)
+	if err != nil {
 		if errors.Is(err, errCanceled) {
 			if opts.showProgress {
 				fmt.Fprint(os.Stderr, "Canceled.\n")
 			}
 
-			os.Exit(1)
+			os.Exit(2)
 		}
 
 		panic(err)
 	}
+
+	os.Exit(ret)
 }
 
 // options parses and returns the command line options.
@@ -135,10 +143,14 @@ func options() (cmdOptions, error) {
 		}
 	}
 
+	if flag.NArg() == 0 {
+		return cmdOptions{}, errNoFiles
+	}
+
 	return cmdOpts, nil
 }
 
-func run(paths []string, opts cmdOptions) error {
+func run(paths []string, opts cmdOptions) (int, error) {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -152,7 +164,7 @@ func run(paths []string, opts cmdOptions) error {
 
 	sims, err := similarities(ctx, paths, opts.simOpts, progress)
 	if err != nil {
-		return err
+		return -1, err
 	}
 
 	if opts.showProgress {
@@ -160,12 +172,21 @@ func run(paths []string, opts cmdOptions) error {
 	}
 
 	if contextDone(ctx) {
-		return errCanceled
+		return -1, errCanceled
 	}
 
 	sortSimilaritiesLines(sims)
 
-	return printSimilarities(ctx, sims, opts)
+	if err := printSimilarities(ctx, sims, opts); err != nil {
+		return -1, err
+	}
+
+	rc := 0
+	if len(sims) > 0 {
+		rc = 1
+	}
+
+	return rc, nil
 }
 
 // printSimilarities prints occurrences in sims. If opts.diffTool is set, it will run it to show differences.

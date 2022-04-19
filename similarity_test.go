@@ -191,7 +191,7 @@ func TestSimilarities_MinLineLength(t *testing.T) {
 	is.Equal(sims[0].Occurrences[1].End, 4)
 }
 
-func TestLinesSimilar(t *testing.T) {
+func TestLinesSimilarity(t *testing.T) {
 	tests := []struct {
 		givenLine1 *fileLine
 		givenLine2 *fileLine
@@ -224,7 +224,7 @@ func TestLinesSimilar(t *testing.T) {
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("[%d] line1=%+v, line2=%+v, ignoreWS=%t", i, test.givenLine1, test.givenLine2, test.givenFlags&IgnoreWhitespaceFlag == IgnoreWhitespaceFlag), func(t *testing.T) {
 			is := is.New(t)
-			is.Equal(linesSimilar(test.givenLine1, test.givenLine2, &Options{Flags: test.givenFlags, MaxEditDistance: 2}), test.wantLevel)
+			is.Equal(linesSimilarity(test.givenLine1, test.givenLine2, &Options{Flags: test.givenFlags, MaxEditDistance: 2}), test.wantLevel)
 		})
 	}
 }
@@ -951,10 +951,12 @@ func newFileLinesMap(t testingTOrB, texts []string) map[int]*fileLine {
 
 func newFileLine(text string) *fileLine {
 	line := fileLine{
-		text:          text,
-		textTrimmed:   strings.TrimSpace(text),
-		length:        len([]rune(text)),
-		lengthTrimmed: len([]rune(strings.TrimSpace(text))),
+		text:             text,
+		textTrimmed:      strings.TrimSpace(text),
+		textRunes:        []rune(text),
+		textTrimmedRunes: []rune(strings.TrimSpace(text)),
+		length:           len([]rune(text)),
+		lengthTrimmed:    len([]rune(strings.TrimSpace(text))),
 	}
 
 	if line.lengthTrimmed == 0 {

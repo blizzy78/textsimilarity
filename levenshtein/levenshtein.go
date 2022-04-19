@@ -5,14 +5,22 @@ import "sync"
 // This is copied from https://github.com/ka-weihe/fast-levenshtein/blob/main/levenshtein.go,
 // modified for concurrency safety.
 
-var peqPool = sync.Pool{
+const (
+	peqSize    = 0x10000
+	phcMhcSize = 256
+	uintsSize  = peqSize + phcMhcSize*2
+)
+
+var uint64sPool = sync.Pool{
 	New: func() interface{} {
-		return make([]uint64, 0x10000)
+		return &[uintsSize]uint64{}
 	},
 }
 
 //nolint:wsl,varnamelen // copied code
-func m64(a string, b string, peq []uint64) int {
+func m64(a []rune, b []rune, uint64s *[uintsSize]uint64) int {
+	peq := uint64s[:peqSize]
+
 	pv := ^uint64(0)
 	mv := uint64(0)
 	sc := 0
@@ -52,15 +60,15 @@ func min(x, y int) int {
 }
 
 //nolint:wsl,gocognit,cyclop,varnamelen // copied code
-func mx(a string, b string, peq []uint64) int {
-	s1 := []rune(a)
-	s2 := []rune(b)
+func mx(s1 []rune, s2 []rune, uint64s *[uintsSize]uint64) int {
+	peq := uint64s[:peqSize]
+	phc := uint64s[peqSize : peqSize+phcMhcSize]
+	mhc := uint64s[peqSize+phcMhcSize:]
+
 	n := len(s1)
 	m := len(s2)
 	hsize := 1 + ((n - 1) / 64)
 	vsize := 1 + ((m - 1) / 64)
-	phc := make([]uint64, hsize)
-	mhc := make([]uint64, hsize)
 	for i := 0; i < hsize; i++ {
 		phc[i] = ^uint64(0)
 		mhc[i] = 0
@@ -133,19 +141,22 @@ func mx(a string, b string, peq []uint64) int {
 	return int(sc)
 }
 
-//nolint:wsl,varnamelen,revive // copied code
-func Distance(a, b string) int {
-	peq := peqPool.Get().([]uint64) //nolint:forcetypeassert // we know what's in the pool
-	defer peqPool.Put(peq)          //nolint:staticcheck // slice header is pointer-like
-
+//nolint:varnamelen,revive // copied code
+func Distance(a, b []rune) int {
 	if len(a) < len(b) {
 		a, b = b, a
 	}
+
 	if len(b) == 0 {
 		return len(a)
 	}
+
+	uint64s := uint64sPool.Get().(*[uintsSize]uint64) //nolint:forcetypeassert // we know what's in the pool
+	defer uint64sPool.Put(uint64s)
+
 	if len(a) <= 64 {
-		return m64(a, b, peq)
+		return m64(a, b, uint64s)
 	}
-	return mx(a, b, peq)
+
+	return mx(a, b, uint64s)
 }

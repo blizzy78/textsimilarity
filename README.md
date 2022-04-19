@@ -35,6 +35,7 @@ $ textsimilarity -progress \
 	-ignoreWS -ignoreBlank -minLen 6 -minLines 10 -maxDist 3 \
 	-ignoreRE '^(package|import|[ \t]*(\*|//))' \
 	-diffTool 'icdiff --cols=150 --tabsize=4 --no-headers -W {{.File1}} {{.File2}}' \
+	-ignoreDiffToolRC \
 	-printEqual \
 	$(find . -type f -name '*\.go' |egrep -v '_test.go|build.go|helpers/')
 ~~~

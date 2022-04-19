@@ -139,7 +139,7 @@ type fileToCheck struct {
 	// linesDone is a bit vector representing the file's lines. When a line has been processed or if it ends up
 	// as part of a similarity, its bit in the vector will be set. In that case, the line can be skipped while
 	// iterating.
-	linesDone *bitVector
+	linesDone bitVector
 
 	// peers are all the files this file needs to be checked against, including itself.
 	peers []*fileToCheck
@@ -152,6 +152,12 @@ type fileLine struct {
 
 	// textTrimmed is the line of text sans leading and trailing whitespace.
 	textTrimmed string
+
+	// textRunes is the original line of text.
+	textRunes []rune
+
+	// textTrimmedRunes is the line of text sans leading and trailing whitespace.
+	textTrimmedRunes []rune
 
 	// length is the length of text (in runes.)
 	length int
@@ -462,7 +468,7 @@ func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level Simila
 		}
 
 		for _, occ := range occs {
-			// this will never return a new slice because of capacity checks above
+			// this will never create a new backing array because of capacity checks above
 			ends = append(ends, occ.End)
 		}
 
@@ -503,7 +509,7 @@ func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level Simila
 
 			line2 := occ2.fileToCheck.f.lines[ends[idx2]-1]
 
-			lineLevel := linesSimilar(line1, line2, opts)
+			lineLevel := linesSimilarity(line1, line2, opts)
 			if lineLevel == differentSimilarityLevel {
 				return level
 			}
@@ -599,9 +605,16 @@ func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLi
 	grp := sync.WaitGroup{}
 	grp.Add(chunks)
 
+	semaphore := make(chan struct{}, runtime.NumCPU())
+
 	for chunkIdx := 0; chunkIdx < chunks; chunkIdx++ {
 		go func(ctx context.Context, startLine int, endLine int) {
 			defer grp.Done()
+
+			semaphore <- struct{}{}
+			defer func() {
+				<-semaphore
+			}()
 
 			line, level := lineIndexEnd(ctx, file, needle, startLine, endLine, opts)
 			resultCh <- result{line, level}
@@ -656,7 +669,7 @@ func lineIndexEnd(ctx context.Context, file *fileToCheck, needle *fileLine, star
 			continue
 		}
 
-		level := linesSimilar(file.f.lines[lineIdx], needle, opts)
+		level := linesSimilarity(file.f.lines[lineIdx], needle, opts)
 		if level == differentSimilarityLevel {
 			continue
 		}
@@ -665,8 +678,8 @@ func lineIndexEnd(ctx context.Context, file *fileToCheck, needle *fileLine, star
 	}
 }
 
-// linesSimilar returns the similarity level between fileLine1 and fileLine2, according to opts.
-func linesSimilar(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) SimilarityLevel {
+// linesSimilarity returns the similarity level between fileLine1 and fileLine2, according to opts.
+func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) SimilarityLevel {
 	line1 := fileLine1.text
 	line2 := fileLine2.text
 
@@ -684,7 +697,7 @@ func linesSimilar(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) Simil
 		maxDist = DefaultMaxEditDistance
 	}
 
-	if levenshteinDistance(line1, line2, fileLine1.flagSet(slowLevenshteinLineFlag) || fileLine2.flagSet(slowLevenshteinLineFlag)) > maxDist {
+	if levenshteinDistance(fileLine1, fileLine2, opts) > maxDist {
 		return differentSimilarityLevel
 	}
 
@@ -693,9 +706,27 @@ func linesSimilar(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) Simil
 
 // levenshteinDistance returns the Levenshtein distance between line1 and line2.
 // If slow==false, line1 and line2 must not contain runes >65535.
-func levenshteinDistance(line1 string, line2 string, slow bool) int {
+func levenshteinDistance(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) int {
+	slow := fileLine1.flagSet(slowLevenshteinLineFlag) || fileLine2.flagSet(slowLevenshteinLineFlag)
+
 	if slow {
+		line1 := fileLine1.text
+		line2 := fileLine2.text
+
+		if opts.flagSet(IgnoreWhitespaceFlag) {
+			line1 = fileLine1.textTrimmed
+			line2 = fileLine2.textTrimmed
+		}
+
 		return slowlevenshtein.Distance(line1, line2, nil)
+	}
+
+	line1 := fileLine1.textRunes
+	line2 := fileLine2.textRunes
+
+	if opts.flagSet(IgnoreWhitespaceFlag) {
+		line1 = fileLine1.textTrimmedRunes
+		line2 = fileLine2.textTrimmedRunes
 	}
 
 	return levenshtein.Distance(line1, line2)
@@ -727,10 +758,19 @@ func textToFileLine(text string, opts *Options) fileLine {
 	line := fileLine{
 		text:        text,
 		textTrimmed: strings.TrimSpace(text),
+		textRunes:   []rune(text),
 	}
 
-	line.length = len([]rune(line.text))
-	line.lengthTrimmed = len([]rune(line.textTrimmed))
+	line.length = len(line.textRunes)
+
+	if line.text != line.textTrimmed {
+		line.textTrimmedRunes = []rune(line.textTrimmed)
+		line.lengthTrimmed = len(line.textTrimmedRunes)
+	} else {
+		line.textTrimmed = line.text
+		line.textTrimmedRunes = line.textRunes
+		line.lengthTrimmed = line.length
+	}
 
 	if needsSlowLevenshtein(line.text) {
 		line.flags |= slowLevenshteinLineFlag
@@ -774,7 +814,7 @@ func (o Options) flagSet(f Flag) bool {
 }
 
 // newBitVector returns a new empty bit vector of length.
-func newBitVector(length int) *bitVector {
+func newBitVector(length int) bitVector {
 	bytes := length / 8
 	if bytes*8 < length {
 		bytes++
@@ -782,18 +822,18 @@ func newBitVector(length int) *bitVector {
 
 	data := make([]byte, bytes)
 
-	return &bitVector{
+	return bitVector{
 		bitvector.NewBitVector(data, length),
 	}
 }
 
 // isSet returns whether bit idx is set in b.
-func (b *bitVector) isSet(idx int) bool {
+func (b bitVector) isSet(idx int) bool {
 	return b.Element(idx) == 1
 }
 
 // set sets bit idx in b to v.
-func (b *bitVector) set(idx int, v bool) {
+func (b bitVector) set(idx int, v bool) {
 	val := byte(0)
 	if v {
 		val = 1

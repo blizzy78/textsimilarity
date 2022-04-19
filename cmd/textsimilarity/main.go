@@ -43,6 +43,9 @@ type cmdOptions struct {
 	// diffTool is a command line template for a diff tool to print similar, but not exactly equal, similarities.
 	diffTool *template.Template
 
+	// ignoreDiffToolRC indicates whether the return code of running diffTool should be ignored.
+	ignoreDiffToolRC bool
+
 	// simOpts specifies options for similarity calculations.
 	simOpts textsimilarity.Options
 }
@@ -74,6 +77,7 @@ func options() (cmdOptions, error) {
 	showProgress := false
 	printEqual := false
 	diffTool := ""
+	ignoreDiffToolRC := false
 
 	ignoreWhitespace := false
 	ignoreBlankLines := false
@@ -85,6 +89,7 @@ func options() (cmdOptions, error) {
 	flag.BoolVar(&showProgress, "progress", showProgress, "write progress to stderr")
 	flag.BoolVar(&printEqual, "printEqual", printEqual, "print equal similarities")
 	flag.StringVar(&diffTool, "diffTool", diffTool, "diff tool command line template")
+	flag.BoolVar(&ignoreDiffToolRC, "ignoreDiffToolRC", ignoreDiffToolRC, "ignore diff tool return code")
 
 	flag.BoolVar(&ignoreWhitespace, "ignoreWS", ignoreWhitespace, "ignore whitespace")
 	flag.BoolVar(&ignoreBlankLines, "ignoreBlank", ignoreBlankLines, "ignore blank lines")
@@ -114,8 +119,9 @@ func options() (cmdOptions, error) {
 	}
 
 	cmdOpts := cmdOptions{
-		showProgress: showProgress,
-		printEqual:   printEqual,
+		showProgress:     showProgress,
+		printEqual:       printEqual,
+		ignoreDiffToolRC: ignoreDiffToolRC,
 
 		simOpts: simOpts,
 	}
@@ -303,16 +309,17 @@ func runDiffTool(ctx context.Context, path1 string, path2 string, opts cmdOption
 		return fmt.Errorf("construct diff tool command line: %w", err)
 	}
 
-	parts := strings.Split(buf.String(), " ")
+	cmdLine := buf.String()
+	parts := strings.Split(cmdLine, " ")
 
 	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...) //nolint:gosec // okay
 
 	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("run diff tool: %w", err)
-	}
-
 	fmt.Print(string(output))
+
+	if err != nil && !opts.ignoreDiffToolRC {
+		return fmt.Errorf("%s: %w", cmdLine, err)
+	}
 
 	return nil
 }

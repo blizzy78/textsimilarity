@@ -23,10 +23,12 @@ func BenchmarkLineIndex(b *testing.B) {
 
 	opts := Options{MaxEditDistance: 2}
 
+	ctx := context.Background()
+
 	b.StartTimer()
 
 	for n := 0; n < b.N; n++ {
-		Line, Level = lineIndex(context.Background(), file, needle, 0, &opts)
+		Line, Level = lineIndex(ctx, file, needle, 0, &opts)
 	}
 }
 
@@ -45,9 +47,11 @@ func BenchmarkLineIndex_Large(b *testing.B) {
 
 	opts := Options{MaxEditDistance: 2}
 
+	ctx := context.Background()
+
 	b.StartTimer()
 
 	for n := 0; n < b.N; n++ {
-		Line, Level = lineIndex(context.Background(), file, needle, 0, &opts)
+		Line, Level = lineIndex(ctx, file, needle, 0, &opts)
 	}
 }

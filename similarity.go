@@ -139,7 +139,7 @@ type fileToCheck struct {
 	// linesDone is a bit vector representing the file's lines. When a line has been processed or if it ends up
 	// as part of a similarity, its bit in the vector will be set. In that case, the line can be skipped while
 	// iterating.
-	linesDone bitVector
+	linesDone *bitVector
 
 	// peers are all the files this file needs to be checked against, including itself.
 	peers []*fileToCheck
@@ -170,9 +170,7 @@ type fileLine struct {
 }
 
 // A bitVector is a compact set of bits.
-type bitVector struct {
-	*bitvector.BitVector
-}
+type bitVector bitvector.BitVector
 
 // intSlicePool is used to allocate []int, and to help with garbage collection.
 var intSlicePool = sync.Pool{
@@ -705,7 +703,6 @@ func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) Si
 }
 
 // levenshteinDistance returns the Levenshtein distance between line1 and line2.
-// If slow==false, line1 and line2 must not contain runes >65535.
 func levenshteinDistance(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) int {
 	slow := fileLine1.flagSet(slowLevenshteinLineFlag) || fileLine2.flagSet(slowLevenshteinLineFlag)
 
@@ -750,11 +747,11 @@ func (f *File) load(opts *Options) error {
 		}
 
 		line := textToFileLine(text, opts)
-		f.lines[lineIdx] = &line
+		f.lines[lineIdx] = line
 	}
 }
 
-func textToFileLine(text string, opts *Options) fileLine {
+func textToFileLine(text string, opts *Options) *fileLine {
 	line := fileLine{
 		text:        text,
 		textTrimmed: strings.TrimSpace(text),
@@ -781,7 +778,7 @@ func textToFileLine(text string, opts *Options) fileLine {
 	}
 
 	if opts.IgnoreLineRegex == nil {
-		return line
+		return &line
 	}
 
 	text = line.text
@@ -793,7 +790,7 @@ func textToFileLine(text string, opts *Options) fileLine {
 		line.flags |= matchesIgnoreRegexLineFlag
 	}
 
-	return line
+	return &line
 }
 
 // needsSlowLevenshtein returns whether a slower Levenshtein distance comparison must be used to compare s
@@ -814,7 +811,7 @@ func (o Options) flagSet(f Flag) bool {
 }
 
 // newBitVector returns a new empty bit vector of length.
-func newBitVector(length int) bitVector {
+func newBitVector(length int) *bitVector {
 	bytes := length / 8
 	if bytes*8 < length {
 		bytes++
@@ -822,24 +819,22 @@ func newBitVector(length int) bitVector {
 
 	data := make([]byte, bytes)
 
-	return bitVector{
-		bitvector.NewBitVector(data, length),
-	}
+	return (*bitVector)(bitvector.NewBitVector(data, length))
 }
 
 // isSet returns whether bit idx is set in b.
-func (b bitVector) isSet(idx int) bool {
-	return b.Element(idx) == 1
+func (b *bitVector) isSet(idx int) bool {
+	return (*bitvector.BitVector)(b).Element(idx) == 1
 }
 
 // set sets bit idx in b to v.
-func (b bitVector) set(idx int, v bool) {
+func (b *bitVector) set(idx int, v bool) {
 	val := byte(0)
 	if v {
 		val = 1
 	}
 
-	b.Set(val, idx)
+	(*bitvector.BitVector)(b).Set(val, idx)
 }
 
 // longEnough returns whether l is long enough to be considered for similarities at all, according to opts.

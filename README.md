@@ -25,7 +25,17 @@ To install globally, run the following:
 go install github.com/blizzy78/textsimilarity/cmd/textsimilarity@latest
 ```
 
-For example, you can now run it against [restic] source code, with [icdiff] as a diff tool:
+You can also run it directly
+
+```
+go run github.com/blizzy78/textsimilarity/cmd/textsimilarity@latest ...
+```
+
+
+Usage Example
+-------------
+
+After installation, you can now run it against [restic] source code, with [icdiff] as a diff tool:
 
 ~~~bash
 $ git clone https://github.com/restic/restic.git

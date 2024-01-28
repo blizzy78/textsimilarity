@@ -1,4 +1,4 @@
-package levenshtein //nolint:stylecheck // copied code
+package levenshtein //nolint:stylecheck,revive // copied code
 
 import "sync"
 
@@ -12,7 +12,7 @@ const (
 )
 
 var uint64sPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &[uintsSize]uint64{}
 	},
 }
@@ -52,7 +52,7 @@ func m64(a []rune, b []rune, uint64s *[uintsSize]uint64) int {
 }
 
 //nolint:wsl // copied code
-func min(x, y int) int {
+func min(x int, y int) int {
 	if x < y {
 		return x
 	}
@@ -142,7 +142,7 @@ func mx(s1 []rune, s2 []rune, uint64s *[uintsSize]uint64) int {
 }
 
 //nolint:varnamelen,revive // copied code
-func Distance(a, b []rune) int {
+func Distance(a []rune, b []rune) int {
 	if len(a) < len(b) {
 		a, b = b, a
 	}

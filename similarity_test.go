@@ -15,7 +15,7 @@ import (
 
 type testingTOrB interface {
 	Helper()
-	Fatal(args ...interface{})
+	Fatal(args ...any)
 }
 
 func TestSimilarities(t *testing.T) {
@@ -350,7 +350,7 @@ func TestLineIndex_Large(t *testing.T) {
 	is := is.New(t)
 
 	osFile, _ := os.Open("testdata/lipsum.txt")
-	defer osFile.Close() //nolint:errcheck,gosec // file is being read
+	defer osFile.Close() //nolint:errcheck // file is being read
 
 	data, _ := io.ReadAll(osFile)
 	texts := strings.Split(string(data), "\n")
@@ -978,7 +978,7 @@ func readSimilaritiesChan(ch <-chan *Similarity) []*Similarity {
 
 func drainProgressChan(ch <-chan Progress) func() {
 	return func() {
-		for range ch {
+		for range ch { //nolint:revive // do nothing with channel contents
 		}
 	}
 }

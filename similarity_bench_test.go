@@ -36,7 +36,7 @@ func BenchmarkLineIndex_Large(b *testing.B) {
 	b.StopTimer()
 
 	osFile, _ := os.Open("testdata/lipsum.txt")
-	defer osFile.Close() //nolint:errcheck,gosec // file is being read
+	defer osFile.Close() //nolint:errcheck // file is being read
 
 	data, _ := io.ReadAll(osFile)
 	texts := strings.Split(string(data), "\n")

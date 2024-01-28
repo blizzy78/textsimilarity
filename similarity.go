@@ -174,7 +174,7 @@ type bitVector bitvector.BitVector
 
 // intSlicePool is used to allocate []int, and to help with garbage collection.
 var intSlicePool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		// 1024 should be a reasonably high number of occurrences for a similarity,
 		// higher numbers will be satisfied from outside of the pool
 		return make([]int, 0, 1024)
@@ -635,7 +635,7 @@ func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLi
 			continue
 		}
 
-		if smallestResult.line >= 0 && res.line >= smallestResult.line {
+		if smallestResult.line >= 0 && smallestResult.line <= res.line {
 			continue
 		}
 

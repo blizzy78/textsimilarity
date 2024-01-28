@@ -1,4 +1,4 @@
-package main
+package main //nolint:revive // no need for package documentation here
 
 import (
 	"bufio"
@@ -182,7 +182,7 @@ func run(paths []string, opts cmdOptions) (int, error) {
 	}
 
 	rc := 0
-	if len(sims) > 0 {
+	if len(sims) != 0 {
 		rc = 1
 	}
 
@@ -381,7 +381,7 @@ func fileText(path string, startLine int, endLine int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("open: %w", err)
 	}
-	defer file.Close() //nolint:errcheck,gosec // file is being read
+	defer file.Close() //nolint:errcheck // file is being read
 
 	textBuf := strings.Builder{}
 

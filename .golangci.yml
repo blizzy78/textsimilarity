@@ -29,7 +29,6 @@ linters:
     - gofmt
     - goprintffuncname
     - gosec
-    - ifshort
     - nakedret
     - nestif
     - nilerr
@@ -39,17 +38,19 @@ linters:
     - predeclared
     - promlinter
     - revive
-    - rowserrcheck
-    - sqlclosecheck
     - stylecheck
     - thelper
     - tparallel
     - unconvert
     - unparam
     - varnamelen
-    - wastedassign
     - wrapcheck
     - wsl
+  disable:
+    # disabled for Go 1.19
+    - rowserrcheck
+    - sqlclosecheck
+    - wastedassign
 
 linters-settings:
   gocognit:
@@ -58,18 +59,15 @@ linters-settings:
     max-func-lines: 0
   nolintlint:
     allow-unused: false
-    allow-leading-space: false
     require-explanation: true
     require-specific: true
-  unused:
-    go: 1.17
   varnamelen:
     check-return: true
     ignore-type-assert-ok: true
     ignore-map-index-ok: true
     ignore-chan-recv-ok: true
     ignore-decls:
-      - f *testing.F
+      - ok bool
       - is *is.I
       - t testing.T
       - t testingTOrB

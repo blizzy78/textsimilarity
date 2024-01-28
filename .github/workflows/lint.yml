@@ -7,7 +7,7 @@ permissions:
   pull-requests: read
 
 jobs:
-  golangci:
+  golangci-lint:
     name: golangci-lint
     runs-on: ubuntu-latest
 
@@ -24,6 +24,19 @@ jobs:
         uses: golangci/golangci-lint-action@v3
         with:
           version: latest
+
+  consistent:
+    name: consistent
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: consistent
         run: go run github.com/blizzy78/consistent/cmd/consistent@latest ./...

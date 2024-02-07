@@ -43,6 +43,18 @@ const (
 // DefaultMaxEditDistance is the Levenshtein distance used when Options.MaxEditDistance <= 0.
 const DefaultMaxEditDistance = 5
 
+const (
+	// blankLineFlag is set on a fileLine when that line is blank.
+	blankLineFlag = Flag(1 << iota)
+
+	// slowLevenshteinLineFlag is set on a fileLine when that line's text must be used with the "slow"
+	// Levenshtein distance calculation.
+	slowLevenshteinLineFlag
+
+	// matchesIgnoreRegexLineFlag is set on a fileLine when that line's text matches Options.IgnoreLineRegex.
+	matchesIgnoreRegexLineFlag
+)
+
 // Options specifies several options for determining similarities.
 type Options struct {
 	// Flags is a set of flags specifying different behaviour in determining similarities, such as ignoring whitespace or blank lines.
@@ -118,18 +130,6 @@ type Progress struct {
 
 	Err error
 }
-
-const (
-	// blankLineFlag is set on a fileLine when that line is blank.
-	blankLineFlag = Flag(1 << iota)
-
-	// slowLevenshteinLineFlag is set on a fileLine when that line's text must be used with the "slow"
-	// Levenshtein distance calculation.
-	slowLevenshteinLineFlag
-
-	// matchesIgnoreRegexLineFlag is set on a fileLine when that line's text matches Options.IgnoreLineRegex.
-	matchesIgnoreRegexLineFlag
-)
 
 // A fileToCheck is a file that needs to be processed, along with its peers.
 type fileToCheck struct {
@@ -220,7 +220,7 @@ func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Si
 	progressCh := make(chan Progress)
 	filesDone := int32(0)
 	startTime := time.Now()
-	semaphore := make(chan struct{}, runtime.NumCPU())
+	semaphore := make(chan struct{}, runtime.NumCPU()+2)
 
 	advanceAndSendProgress := func(file *File) {
 		if contextDone(ctx) {
@@ -230,12 +230,12 @@ func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Si
 		flDone := int(atomic.AddInt32(&filesDone, 1))
 
 		elapsed := time.Since(startTime)
-		total := time.Duration(int64(elapsed) * int64(len(files)) / int64(flDone))
+		total := time.Duration(int64(float64(elapsed) * float64(len(files)) / float64(flDone)))
 		remaining := total - elapsed
 
 		progressCh <- Progress{
 			File: file,
-			Done: float64(flDone) * 100 / float64(len(files)),
+			Done: float64(flDone) * 100.0 / float64(len(files)),
 			ETA:  time.Now().Add(remaining),
 		}
 	}
@@ -603,16 +603,9 @@ func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLi
 	grp := sync.WaitGroup{}
 	grp.Add(chunks)
 
-	semaphore := make(chan struct{}, runtime.NumCPU())
-
 	for chunkIdx := 0; chunkIdx < chunks; chunkIdx++ {
 		go func(ctx context.Context, startLine int, endLine int) {
 			defer grp.Done()
-
-			semaphore <- struct{}{}
-			defer func() {
-				<-semaphore
-			}()
 
 			line, level := lineIndexEnd(ctx, file, needle, startLine, endLine, opts)
 			resultCh <- result{line, level}
@@ -919,10 +912,5 @@ func sortOccurrences(occs []*FileOccurrence) {
 
 // contextDone returns whether ctx is done.
 func contextDone(ctx context.Context) bool {
-	select {
-	case <-ctx.Done():
-		return true
-	default:
-		return false
-	}
+	return ctx.Err() != nil
 }

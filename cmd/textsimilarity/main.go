@@ -410,7 +410,7 @@ func fileText(path string, startLine int, endLine int) (string, error) {
 }
 
 // similarities calculates similarities between files in paths, according to opts. Progress is reported to progress.
-func similarities(ctx context.Context, paths []string, opts textsimilarity.Options, progress func(textsimilarity.Progress)) ([]*textsimilarity.Similarity, error) {
+func similarities(ctx context.Context, paths []string, opts textsimilarity.Options, progress func(progress textsimilarity.Progress)) ([]*textsimilarity.Similarity, error) {
 	var osFiles []*os.File
 
 	defer func() {

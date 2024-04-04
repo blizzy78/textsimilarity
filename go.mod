@@ -1,8 +1,6 @@
 module github.com/blizzy78/textsimilarity
 
-go 1.21
-
-toolchain go1.21.6
+go 1.22.2
 
 require (
 	github.com/agext/levenshtein v1.2.3

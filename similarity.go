@@ -127,8 +127,6 @@ type Progress struct {
 
 	// ETA is an estimate of the time of completion.
 	ETA time.Time
-
-	Err error
 }
 
 // A fileToCheck is a file that needs to be processed, along with its peers.

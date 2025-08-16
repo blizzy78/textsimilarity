@@ -251,6 +251,7 @@ func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Si
 			defer grp.Done()
 
 			semaphore <- struct{}{}
+
 			defer func() {
 				<-semaphore
 			}()
@@ -271,6 +272,7 @@ func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Si
 	go func() {
 		defer close(simsCh)
 		defer close(progressCh)
+
 		grp.Wait()
 	}()
 
@@ -752,7 +754,7 @@ func (f *File) load(opts *Options) error {
 	}
 }
 
-func textToFileLine(text string, opts *Options) *fileLine {
+func textToFileLine(text string, opts *Options) *fileLine { //nolint:cyclop // it's not too bad
 	line := fileLine{
 		text:        text,
 		textTrimmed: strings.TrimSpace(text),

@@ -142,8 +142,8 @@ func options() (cmdOptions, error) {
 
 	if diffTool != "" {
 		var err error
-		cmdOpts.diffTool, err = template.New("diffTool").Parse(diffTool)
 
+		cmdOpts.diffTool, err = template.New("diffTool").Parse(diffTool)
 		if err != nil {
 			return cmdOptions{}, fmt.Errorf("parse diff tool template: %w", err)
 		}
@@ -331,7 +331,6 @@ func runDiffTool(ctx context.Context, path1 string, path2 string, opts cmdOption
 		File1: path1,
 		File2: path2,
 	})
-
 	if err != nil {
 		return fmt.Errorf("construct diff tool command line: %w", err)
 	}

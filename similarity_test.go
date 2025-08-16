@@ -1027,6 +1027,7 @@ func waitForAll(funcs ...func()) {
 	for _, f := range funcs {
 		go func(f func()) {
 			defer grp.Done()
+
 			f()
 		}(f)
 	}

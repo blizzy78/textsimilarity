@@ -1,4 +1,4 @@
-package levenshtein //nolint:stylecheck,revive // copied code
+package levenshtein
 
 import "sync"
 
@@ -17,7 +17,6 @@ var uint64sPool = sync.Pool{
 	},
 }
 
-//nolint:wsl,varnamelen // copied code
 func m64(a []rune, b []rune, uint64s *[uintsSize]uint64) int {
 	peq := uint64s[:peqSize]
 
@@ -141,7 +140,6 @@ func mx(s1 []rune, s2 []rune, uint64s *[uintsSize]uint64) int {
 	return int(sc)
 }
 
-//nolint:varnamelen,revive // copied code
 func Distance(a []rune, b []rune) int {
 	if len(a) < len(b) {
 		a, b = b, a

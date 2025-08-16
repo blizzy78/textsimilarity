@@ -985,7 +985,7 @@ func TestFile_Load(t *testing.T) {
 
 	file := newFile("test.txt", "aaaaaaaaaa\nbbbbbbbbbb\nfoo\ncccccccccc\n𨊂\ndddddddddd\neeeeeeeeee\n")
 
-	wantLines := newFileLinesMap(t, []string{"aaaaaaaaaa", "bbbbbbbbbb", "foo", "cccccccccc", "𨊂", "dddddddddd", "eeeeeeeeee"})
+	wantLines := newFileLinesSlice(t, []string{"aaaaaaaaaa", "bbbbbbbbbb", "foo", "cccccccccc", "𨊂", "dddddddddd", "eeeeeeeeee"})
 
 	_ = file.load(&Options{
 		IgnoreLineRegex: regexp.MustCompile("foo"),
@@ -1036,16 +1036,16 @@ func newFileToCheck(t testingTOrB, texts []string, done []bool) *fileToCheck {
 
 	return &fileToCheck{
 		f: &File{
-			lines: newFileLinesMap(t, texts),
+			lines: newFileLinesSlice(t, texts),
 		},
 		linesDone: linesDone,
 	}
 }
 
-func newFileLinesMap(t testingTOrB, texts []string) map[int]*fileLine {
+func newFileLinesSlice(t testingTOrB, texts []string) []*fileLine {
 	t.Helper()
 
-	lines := map[int]*fileLine{}
+	lines := make([]*fileLine, len(texts))
 	for i, t := range texts {
 		lines[i] = newFileLine(t)
 	}
@@ -1054,13 +1054,24 @@ func newFileLinesMap(t testingTOrB, texts []string) map[int]*fileLine {
 }
 
 func newFileLine(text string) *fileLine {
+	textRunes := []rune(text)
+	length := len(textRunes)
+
 	line := fileLine{
-		text:             text,
-		textTrimmed:      strings.TrimSpace(text),
-		textRunes:        []rune(text),
-		textTrimmedRunes: []rune(strings.TrimSpace(text)),
-		length:           len([]rune(text)),
-		lengthTrimmed:    len([]rune(strings.TrimSpace(text))),
+		text:      text,
+		textRunes: textRunes,
+		length:    length,
+	}
+
+	if textTrimmed := strings.TrimSpace(text); textTrimmed != text {
+		line.textTrimmed = textTrimmed
+		textTrimmedRunes := []rune(textTrimmed)
+		line.textTrimmedRunes = textTrimmedRunes
+		line.lengthTrimmed = len(textTrimmedRunes)
+	} else {
+		line.textTrimmed = text
+		line.textTrimmedRunes = textRunes
+		line.lengthTrimmed = len(textRunes)
 	}
 
 	if line.lengthTrimmed == 0 {

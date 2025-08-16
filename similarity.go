@@ -93,8 +93,8 @@ type File struct {
 	// R is read from to get the file's contents. The contents is expected to be UTF-8 text.
 	R io.Reader
 
-	// lines is a map of line numbers (zero-based) to line text.
-	lines map[int]*fileLine
+	// lines is a slice of line texts (indexed by zero-based line numbers).
+	lines []*fileLine
 }
 
 // A Similarity is a match of ranges of text between different Files.
@@ -597,107 +597,11 @@ func acceptLine(line *fileLine, opts *Options) bool {
 	return true
 }
 
-// lineIndex returns the line index and similarity level of needle in file, starting with startLine, according to opts.
-// If no match can be found, -1 is returned for the line index.
-func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLine int, opts *Options) (int, SimilarityLevel) { //nolint:gocognit,cyclop // concurrent setup is complex
-	linesToCheck := len(file.f.lines) - startLine
-
-	if linesToCheck <= 0 {
-		return -1, differentSimilarityLevel
-	}
-
-	const chunkSize = 10
-
-	chunks := linesToCheck / chunkSize
-	if chunks*chunkSize < linesToCheck {
-		chunks++
-	}
-
-	if chunks == 1 {
-		return lineIndexEnd(ctx, file, needle, startLine, len(file.f.lines), opts)
-	}
-
-	startLines := make([]int, chunks)
-	for i := range startLines {
-		startLines[i] = chunkSize*i + startLine
-	}
-
-	endLines := make([]int, chunks)
-	for i := range endLines {
-		endLines[i] = chunkSize*(i+1) + startLine
-	}
-
-	if endLines[len(endLines)-1] > len(file.f.lines) {
-		endLines[len(endLines)-1] = len(file.f.lines)
-	}
-
-	contexts := make([]context.Context, chunks)
-	cancels := make([]context.CancelFunc, chunks)
-
-	for i := range contexts {
-		contexts[i], cancels[i] = context.WithCancel(ctx)
-	}
-
-	defer func() {
-		for _, cancel := range cancels {
-			cancel()
-		}
-	}()
-
-	type result struct {
-		line  int
-		level SimilarityLevel
-	}
-
-	resultCh := make(chan result)
-
-	grp := sync.WaitGroup{}
-	grp.Add(chunks)
-
-	for chunkIdx := 0; chunkIdx < chunks; chunkIdx++ {
-		go func(ctx context.Context, startLine int, endLine int) {
-			defer grp.Done()
-
-			line, level := lineIndexEnd(ctx, file, needle, startLine, endLine, opts)
-			resultCh <- result{line, level}
-		}(contexts[chunkIdx], startLines[chunkIdx], endLines[chunkIdx])
-	}
-
-	go func() {
-		defer close(resultCh)
-
-		grp.Wait()
-	}()
-
-	smallestResult := result{
-		line:  -1,
-		level: differentSimilarityLevel,
-	}
-
-	for res := range resultCh {
-		if res.line < 0 {
-			continue
-		}
-
-		if smallestResult.line >= 0 && smallestResult.line <= res.line {
-			continue
-		}
-
-		smallestResult = res
-
-		for i, startLine := range startLines {
-			if startLine > res.line {
-				cancels[i]()
-			}
-		}
-	}
-
-	return smallestResult.line, smallestResult.level
-}
-
 // lineIndexEnd returns the line index and similarity level of needle in file, starting with startLine,
 // ending with endLine (excluding), according to opts. If no match can be found, -1 is returned for the line index.
-func lineIndexEnd(ctx context.Context, file *fileToCheck, needle *fileLine, startLine int, endLine int, opts *Options) (int, SimilarityLevel) {
+func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLine int, opts *Options) (int, SimilarityLevel) {
+	endLine := len(file.f.lines)
+
 	for lineIdx := startLine; ; lineIdx++ {
 		if contextDone(ctx) {
 			return -1, differentSimilarityLevel
@@ -728,10 +632,14 @@ func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) Si
 
 	line1 := fileLine1.text
 	line2 := fileLine2.text
+	len1 := fileLine1.length
+	len2 := fileLine2.length
 
 	if opts.flagSet(IgnoreWhitespaceFlag) {
 		line1 = fileLine1.textTrimmed
 		line2 = fileLine2.textTrimmed
+		len1 = fileLine1.lengthTrimmed
+		len2 = fileLine2.lengthTrimmed
 	}
 
 	if line1 == line2 {
@@ -741,6 +649,15 @@ func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) Si
 	maxDist := opts.MaxEditDistance
 	if maxDist <= 0 {
 		maxDist = DefaultMaxEditDistance
+	}
+
+	lenDiff := len1 - len2
+	if lenDiff < 0 {
+		lenDiff = -lenDiff
+	}
+
+	if lenDiff > maxDist {
+		return differentSimilarityLevel
 	}
 
 	if levenshteinDistance(fileLine1, fileLine2, opts) > maxDist {
@@ -779,7 +696,7 @@ func levenshteinDistance(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options
 
 // load loads all lines from f, and sets up f accordingly, such as setting flags.
 func (f *File) load(opts *Options) error {
-	f.lines = map[int]*fileLine{}
+	f.lines = nil
 
 	reader := bufio.NewReader(f.R)
 	buf := bytes.Buffer{}
@@ -795,7 +712,7 @@ func (f *File) load(opts *Options) error {
 		}
 
 		line := textToFileLine(text, opts)
-		f.lines[lineIdx] = line
+		f.lines = append(f.lines, line)
 	}
 }
 

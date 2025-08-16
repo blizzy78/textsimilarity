@@ -27,7 +27,7 @@ func BenchmarkLineIndex(b *testing.B) {
 
 	b.StartTimer()
 
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		Line, Level = lineIndex(ctx, file, needle, 0, &opts)
 	}
 }
@@ -51,7 +51,7 @@ func BenchmarkLineIndex_Large(b *testing.B) {
 
 	b.StartTimer()
 
-	for n := 0; n < b.N; n++ {
+	for b.Loop() {
 		Line, Level = lineIndex(ctx, file, needle, 0, &opts)
 	}
 }

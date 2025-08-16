@@ -53,6 +53,9 @@ const (
 
 	// matchesIgnoreRegexLineFlag is set on a fileLine when that line's text matches Options.IgnoreLineRegex.
 	matchesIgnoreRegexLineFlag
+
+	// matchesAlwaysDifferentLineFlag is set on a fileLine when that line's text matches Options.AlwaysDifferentLineRegex.
+	matchesAlwaysDifferentLineFlag
 )
 
 // Options specifies several options for determining similarities.
@@ -74,6 +77,9 @@ type Options struct {
 	// IgnoreLineRegex, if set, is an expression that a line must match to be ignored. Note that leading/trailing
 	// whitespace on lines as well as blank lines may be ignored by using Flags.
 	IgnoreLineRegex *regexp.Regexp
+
+	// AlwaysDifferentLineRegex, if set, is an expression that a line must match to be always considered different.
+	AlwaysDifferentLineRegex *regexp.Regexp
 }
 
 // A Flag is a single flag (a single set bit), or a set of flags (multiple set bits), depending on the context.
@@ -669,6 +675,10 @@ func lineIndexEnd(ctx context.Context, file *fileToCheck, needle *fileLine, star
 
 // linesSimilarity returns the similarity level between fileLine1 and fileLine2, according to opts.
 func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) SimilarityLevel {
+	if fileLine1.flags.set(matchesAlwaysDifferentLineFlag) || fileLine2.flags.set(matchesAlwaysDifferentLineFlag) {
+		return differentSimilarityLevel
+	}
+
 	line1 := fileLine1.text
 	line2 := fileLine2.text
 
@@ -768,17 +778,19 @@ func textToFileLine(text string, opts *Options) *fileLine {
 		line.flags |= blankLineFlag
 	}
 
-	if opts.IgnoreLineRegex == nil {
-		return &line
-	}
+	if opts.IgnoreLineRegex != nil || opts.AlwaysDifferentLineRegex != nil {
+		text = line.text
+		if opts.flagSet(IgnoreWhitespaceFlag) {
+			text = line.textTrimmed
+		}
 
-	text = line.text
-	if opts.flagSet(IgnoreWhitespaceFlag) {
-		text = line.textTrimmed
-	}
+		if opts.IgnoreLineRegex != nil && opts.IgnoreLineRegex.MatchString(text) {
+			line.flags |= matchesIgnoreRegexLineFlag
+		}
 
-	if opts.IgnoreLineRegex.MatchString(text) {
-		line.flags |= matchesIgnoreRegexLineFlag
+		if opts.AlwaysDifferentLineRegex != nil && opts.AlwaysDifferentLineRegex.MatchString(text) {
+			line.flags |= matchesAlwaysDifferentLineFlag
+		}
 	}
 
 	return &line

@@ -35,19 +35,21 @@ go run github.com/blizzy78/textsimilarity/cmd/textsimilarity@latest ...
 Usage Example
 -------------
 
-After installation, you can now run it against [restic] source code, with [icdiff] as a diff tool:
+After installation, you can now run it against [restic] source code, with [icdiff] as the diff tool:
 
 ~~~bash
 $ git clone https://github.com/restic/restic.git
 $ cd restic
 
-$ textsimilarity -progress \
+$ textsimilarity \
+	-progress \
 	-ignoreWS -ignoreBlank -minLen 6 -minLines 10 -maxDist 3 \
-	-ignoreRE '^(package|import|[ \t]*(\*|//))' \
+	-ignoreRE '^[ \t]*(\*|//)' \
+	-alwaysDiffRE '^(package|import)' \
 	-diffTool 'icdiff --cols=150 --tabsize=4 --no-headers -W {{.File1}} {{.File2}}' \
 	-ignoreDiffToolRC \
 	-printEqual \
-	$(find . -type f -name '*\.go' |egrep -v '_test.go|build.go|helpers/')
+	$(find . -type f -name '*\.go' -not \( -name '*_test.go' -o -name build.go -o -path '*helpers/*' \))
 ~~~
 
 This will result in the following output:

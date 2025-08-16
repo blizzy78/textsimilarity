@@ -161,6 +161,43 @@ func TestSimilarities_IgnoreRegex(t *testing.T) {
 	is.Equal(sims[0].Occurrences[1].End, 4)
 }
 
+func TestSimilarities_AlwaysDifferentRegex(t *testing.T) {
+	is := is.New(t)
+
+	file1 := newFile("1.txt", "aaaaaaaaaa\nfoo\nbbbbbbbbbb\ncccccccccc\n")
+	file2 := newFile("2.txt", "aaaaaaaaaa\nfoo\nbbbbbbbbbb\ncccccccccc\n")
+
+	simsCh, progressCh, _ := Similarities(context.Background(), []*File{file1, file2}, &Options{
+		AlwaysDifferentLineRegex: regexp.MustCompile("foo"),
+	})
+
+	var sims []*Similarity
+
+	waitForAll(func() {
+		sims = readSimilaritiesChan(simsCh)
+	}, drainProgressChan(progressCh))
+
+	is.Equal(len(sims), 2)
+
+	is.Equal(len(sims[0].Occurrences), 2)
+
+	is.Equal(sims[0].Occurrences[0].File, file1)
+	is.Equal(sims[0].Occurrences[0].Start, 0)
+	is.Equal(sims[0].Occurrences[0].End, 1)
+
+	is.Equal(sims[0].Occurrences[1].File, file2)
+	is.Equal(sims[0].Occurrences[1].Start, 0)
+	is.Equal(sims[0].Occurrences[1].End, 1)
+
+	is.Equal(sims[1].Occurrences[0].File, file1)
+	is.Equal(sims[1].Occurrences[0].Start, 2)
+	is.Equal(sims[1].Occurrences[0].End, 4)
+
+	is.Equal(sims[1].Occurrences[1].File, file2)
+	is.Equal(sims[1].Occurrences[1].Start, 2)
+	is.Equal(sims[1].Occurrences[1].End, 4)
+}
+
 func TestSimilarities_MinLineLength(t *testing.T) {
 	is := is.New(t)
 

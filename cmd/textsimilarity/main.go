@@ -93,6 +93,7 @@ func options() (cmdOptions, error) {
 	minSimilarLines := 10
 	maxEditDistance := textsimilarity.DefaultMaxEditDistance
 	ignoreLineRegex := ""
+	alwaysDifferentLineRegex := ""
 
 	flag.BoolVar(&showProgress, "progress", showProgress, "write progress to stderr")
 	flag.BoolVar(&printEqual, "printEqual", printEqual, "print equal similarities")
@@ -105,6 +106,7 @@ func options() (cmdOptions, error) {
 	flag.IntVar(&minSimilarLines, "minLines", minSimilarLines, "minimum similar lines")
 	flag.IntVar(&maxEditDistance, "maxDist", maxEditDistance, "maximum edit distance")
 	flag.StringVar(&ignoreLineRegex, "ignoreRE", ignoreLineRegex, "ignore lines matching regex")
+	flag.StringVar(&alwaysDifferentLineRegex, "alwaysDiffRE", alwaysDifferentLineRegex, "always consider lines matching regex as different")
 
 	flag.Parse()
 
@@ -124,6 +126,10 @@ func options() (cmdOptions, error) {
 
 	if ignoreLineRegex != "" {
 		simOpts.IgnoreLineRegex = regexp.MustCompile(ignoreLineRegex)
+	}
+
+	if alwaysDifferentLineRegex != "" {
+		simOpts.AlwaysDifferentLineRegex = regexp.MustCompile(alwaysDifferentLineRegex)
 	}
 
 	cmdOpts := cmdOptions{

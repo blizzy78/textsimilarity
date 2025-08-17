@@ -372,6 +372,18 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 
 		level = expandOccurrences(ctx, occurrences, level, opts)
 
+		occurrences = filterSameFileOverlappingOccurrences(occurrences)
+		if len(occurrences) < 2 {
+			// reset lines done
+			for _, occ := range occurrences {
+				for l := occ.Start; l < occ.End; l++ {
+					occ.fileToCheck.linesDone.set(l, false)
+				}
+			}
+
+			continue
+		}
+
 		if occurrences[0].End-occurrences[0].Start < opts.MinSimilarLines {
 			// reset lines done
 			for _, occ := range occurrences {
@@ -533,6 +545,39 @@ func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level Simila
 			}
 		}
 	}
+}
+
+// filterSameFileOverlappingOccurrences filters out occurrences that overlap with each other in the same file.
+func filterSameFileOverlappingOccurrences(occurrences []*FileOccurrence) []*FileOccurrence {
+	nonOverlapping := make([]*FileOccurrence, 0, len(occurrences))
+
+	for _, occ := range occurrences {
+		overlap := false
+
+		for _, nonOverlapOcc := range nonOverlapping {
+			if nonOverlapOcc.fileToCheck.f != occ.fileToCheck.f {
+				continue
+			}
+
+			if nonOverlapOcc.Start < occ.End && occ.Start < nonOverlapOcc.End {
+				overlap = true
+				break
+			}
+		}
+
+		if overlap {
+			// reset lines done
+			for l := occ.Start; l < occ.End; l++ {
+				occ.fileToCheck.linesDone.set(l, false)
+			}
+
+			continue
+		}
+
+		nonOverlapping = append(nonOverlapping, occ)
+	}
+
+	return nonOverlapping
 }
 
 // acceptLine returns whether line should be considered for similarities at all, according to opts.

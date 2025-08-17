@@ -887,6 +887,73 @@ func TestFileSimilarities_Similar(t *testing.T) {
 	testFileSimilarities(t, givenFileToCheck, 0, 0, wantSimilarities)
 }
 
+func TestFileSimilarities_SingleFile_Overlap(t *testing.T) {
+	is := is.New(t)
+
+	const content = `package foo
+
+import (
+	"fmt"
+	"os"
+)
+
+func main() {
+	fmt.Println("Hello World!")
+}
+
+type foobar struct {
+	// some really long comment that goes on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on
+	name string
+}
+
+func (s *foobar) GetName() string {
+	return s.name
+}
+
+type foobar struct {
+	// some really long comment that goes on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on
+	name string
+}
+
+func (s *foobar) GetName() string {
+	return s.name
+}
+`
+
+	opts := Options{
+		MinSimilarLines: 3,
+		MaxEditDistance: 5,
+	}
+
+	givenFile := File{
+		Name: "text",
+		R:    strings.NewReader(content),
+	}
+
+	_ = givenFile.load(&opts)
+
+	givenFileToCheck := fileToCheck{
+		f:         &givenFile,
+		linesDone: newBitVector(len(givenFile.lines)),
+	}
+
+	peerFile := fileToCheck{
+		f:         &givenFile,
+		linesDone: newBitVector(len(givenFile.lines)),
+	}
+
+	givenFileToCheck.peers = []*fileToCheck{&peerFile}
+
+	sims := fileSimilarities(context.Background(), &givenFileToCheck, &opts)
+
+	is.Equal(len(sims), 1)
+	is.Equal(len(sims[0].Occurrences), 2)
+	is.Equal(sims[0].Occurrences[0].Start, 11)
+	is.Equal(sims[0].Occurrences[0].End, 19)
+	is.Equal(sims[0].Occurrences[1].Start, 20)
+	is.Equal(sims[0].Occurrences[1].End, 28)
+}
+
 func testFileSimilarities(t *testing.T, givenFile *fileToCheck, givenFlags Flag, givenMinSimilarLines int, wantSimilarities []*Similarity) {
 	t.Helper()
 

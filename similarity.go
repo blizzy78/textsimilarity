@@ -151,23 +151,14 @@ type fileToCheck struct {
 
 // A fileLine is a single line of text in a file.
 type fileLine struct {
-	// text is the original line of text.
+	// text is the line of text.
 	text string
 
-	// textTrimmed is the line of text sans leading and trailing whitespace.
-	textTrimmed string
-
-	// textRunes is the original line of text.
+	// textRunes is the line of text, as runes.
 	textRunes []rune
-
-	// textTrimmedRunes is the line of text sans leading and trailing whitespace.
-	textTrimmedRunes []rune
 
 	// length is the length of text (in runes.)
 	length int
-
-	// lengthTrimmed is the length of textTrimmed (in runes.)
-	lengthTrimmed int
 
 	// flags is a set of line flags, such as whether this line is blank.
 	flags Flag
@@ -630,20 +621,13 @@ func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) Si
 		return differentSimilarityLevel
 	}
 
-	line1 := fileLine1.text
-	line2 := fileLine2.text
-	len1 := fileLine1.length
-	len2 := fileLine2.length
-
-	if opts.flagSet(IgnoreWhitespaceFlag) {
-		line1 = fileLine1.textTrimmed
-		line2 = fileLine2.textTrimmed
-		len1 = fileLine1.lengthTrimmed
-		len2 = fileLine2.lengthTrimmed
+	if fileLine1.text == fileLine2.text {
+		return EqualSimilarityLevel
 	}
 
-	if line1 == line2 {
-		return EqualSimilarityLevel
+	lenDiff := fileLine1.length - fileLine2.length
+	if lenDiff < 0 {
+		lenDiff = -lenDiff
 	}
 
 	maxDist := opts.MaxEditDistance
@@ -651,16 +635,11 @@ func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) Si
 		maxDist = DefaultMaxEditDistance
 	}
 
-	lenDiff := len1 - len2
-	if lenDiff < 0 {
-		lenDiff = -lenDiff
-	}
-
 	if lenDiff > maxDist {
 		return differentSimilarityLevel
 	}
 
-	if levenshteinDistance(fileLine1, fileLine2, opts) > maxDist {
+	if levenshteinDistance(fileLine1, fileLine2) > maxDist {
 		return differentSimilarityLevel
 	}
 
@@ -668,30 +647,14 @@ func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) Si
 }
 
 // levenshteinDistance returns the Levenshtein distance between line1 and line2.
-func levenshteinDistance(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) int {
+func levenshteinDistance(fileLine1 *fileLine, fileLine2 *fileLine) int {
 	slow := fileLine1.flagSet(slowLevenshteinLineFlag) || fileLine2.flagSet(slowLevenshteinLineFlag)
 
 	if slow {
-		line1 := fileLine1.text
-		line2 := fileLine2.text
-
-		if opts.flagSet(IgnoreWhitespaceFlag) {
-			line1 = fileLine1.textTrimmed
-			line2 = fileLine2.textTrimmed
-		}
-
-		return slowlevenshtein.Distance(line1, line2, nil)
+		return slowlevenshtein.Distance(fileLine1.text, fileLine2.text, nil)
 	}
 
-	line1 := fileLine1.textRunes
-	line2 := fileLine2.textRunes
-
-	if opts.flagSet(IgnoreWhitespaceFlag) {
-		line1 = fileLine1.textTrimmedRunes
-		line2 = fileLine2.textTrimmedRunes
-	}
-
-	return levenshtein.Distance(line1, line2)
+	return levenshtein.Distance(fileLine1.textRunes, fileLine2.textRunes)
 }
 
 // load loads all lines from f, and sets up f accordingly, such as setting flags.
@@ -716,38 +679,29 @@ func (f *File) load(opts *Options) error {
 	}
 }
 
-func textToFileLine(text string, opts *Options) *fileLine { //nolint:cyclop // it's not too bad
-	line := fileLine{
-		text:        text,
-		textTrimmed: strings.TrimSpace(text),
-		textRunes:   []rune(text),
+func textToFileLine(text string, opts *Options) *fileLine {
+	if opts.flagSet(IgnoreWhitespaceFlag) {
+		text = strings.TrimSpace(text)
 	}
 
-	line.length = len(line.textRunes)
+	textRunes := []rune(text)
+	length := len(textRunes)
 
-	if line.text != line.textTrimmed {
-		line.textTrimmedRunes = []rune(line.textTrimmed)
-		line.lengthTrimmed = len(line.textTrimmedRunes)
-	} else {
-		line.textTrimmed = line.text
-		line.textTrimmedRunes = line.textRunes
-		line.lengthTrimmed = line.length
+	line := fileLine{
+		text:      text,
+		textRunes: textRunes,
+		length:    length,
 	}
 
 	if needsSlowLevenshtein(line.text) {
 		line.flags |= slowLevenshteinLineFlag
 	}
 
-	if line.lengthTrimmed == 0 {
+	if length == 0 {
 		line.flags |= blankLineFlag
 	}
 
 	if opts.IgnoreLineRegex != nil || opts.AlwaysDifferentLineRegex != nil {
-		text = line.text
-		if opts.flagSet(IgnoreWhitespaceFlag) {
-			text = line.textTrimmed
-		}
-
 		if opts.IgnoreLineRegex != nil && opts.IgnoreLineRegex.MatchString(text) {
 			line.flags |= matchesIgnoreRegexLineFlag
 		}
@@ -806,20 +760,7 @@ func (b *bitVector) set(idx int, v bool) {
 
 // longEnough returns whether l is long enough to be considered for similarities at all, according to opts.
 func (l *fileLine) longEnough(opts *Options) bool {
-	if opts.MinLineLength == 0 {
-		return true
-	}
-
-	if l.flagSet(blankLineFlag) {
-		return true
-	}
-
-	length := l.length
-	if opts.flagSet(IgnoreWhitespaceFlag) {
-		length = l.lengthTrimmed
-	}
-
-	return length >= opts.MinLineLength
+	return l.flagSet(blankLineFlag) || l.length >= opts.MinLineLength
 }
 
 // flagSet returns whether f is set in l.

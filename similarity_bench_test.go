@@ -17,9 +17,10 @@ func BenchmarkLineIndex(b *testing.B) {
 	file := newFileToCheck(b,
 		[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 		[]bool{false, false, false, false, false},
+		false,
 	)
 
-	needle := newFileLine("aaaaaaaaaa")
+	needle := newFileLine("aaaaaaaaaa", false)
 
 	opts := Options{MaxEditDistance: 2}
 
@@ -41,9 +42,9 @@ func BenchmarkLineIndex_Large(b *testing.B) {
 	data, _ := io.ReadAll(osFile)
 	texts := strings.Split(string(data), "\n")
 
-	file := newFileToCheck(b, texts, make([]bool, len(texts)))
+	file := newFileToCheck(b, texts, make([]bool, len(texts)), false)
 
-	needle := newFileLine(texts[50][:10] + "x" + texts[50][10:])
+	needle := newFileLine(texts[50][:10]+"x"+texts[50][10:], false)
 
 	opts := Options{MaxEditDistance: 2}
 

@@ -236,24 +236,24 @@ func TestLinesSimilarity(t *testing.T) {
 		wantLevel  SimilarityLevel
 	}{
 		{
-			givenLine1: newFileLine("aaaaaaaaaa"),
-			givenLine2: newFileLine("aaaaaaaaaa"),
+			givenLine1: newFileLine("aaaaaaaaaa", true),
+			givenLine2: newFileLine("aaaaaaaaaa", true),
 			wantLevel:  EqualSimilarityLevel,
 		},
 		{
-			givenLine1: newFileLine("aaaaaaaaaa"),
-			givenLine2: newFileLine("bbbbbbbbbb"),
+			givenLine1: newFileLine("aaaaaaaaaa", true),
+			givenLine2: newFileLine("bbbbbbbbbb", true),
 			wantLevel:  differentSimilarityLevel,
 		},
 		{
-			givenLine1: newFileLine("aaaaaaaaaa"),
-			givenLine2: newFileLine("     aaaaaaaaaa     "),
+			givenLine1: newFileLine("aaaaaaaaaa", true),
+			givenLine2: newFileLine("     aaaaaaaaaa     ", true),
 			givenFlags: IgnoreWhitespaceFlag,
 			wantLevel:  EqualSimilarityLevel,
 		},
 		{
-			givenLine1: newFileLine("aaaaaaaaaa"),
-			givenLine2: newFileLine("aaaaxaaaaa"),
+			givenLine1: newFileLine("aaaaaaaaaa", true),
+			givenLine2: newFileLine("aaaaxaaaaa", true),
 			wantLevel:  SimilarSimilarityLevel,
 		},
 	}
@@ -280,8 +280,9 @@ func TestLineIndex(t *testing.T) {
 			givenFile: newFileToCheck(t,
 				[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 				[]bool{false, false, false, false, false},
+				false,
 			),
-			givenNeedle: newFileLine("aaaaaaaaaa"),
+			givenNeedle: newFileLine("aaaaaaaaaa", false),
 			wantLine:    0,
 			wantLevel:   EqualSimilarityLevel,
 		},
@@ -290,8 +291,9 @@ func TestLineIndex(t *testing.T) {
 			givenFile: newFileToCheck(t,
 				[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 				[]bool{false, false, false, false, false},
+				false,
 			),
-			givenNeedle: newFileLine("bbbbbbbbbb"),
+			givenNeedle: newFileLine("bbbbbbbbbb", false),
 			wantLine:    1,
 			wantLevel:   EqualSimilarityLevel,
 		},
@@ -300,8 +302,9 @@ func TestLineIndex(t *testing.T) {
 			givenFile: newFileToCheck(t,
 				[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 				[]bool{false, false, false, false, false},
+				false,
 			),
-			givenNeedle: newFileLine("eeeeeeeeee"),
+			givenNeedle: newFileLine("eeeeeeeeee", false),
 			wantLine:    4,
 			wantLevel:   EqualSimilarityLevel,
 		},
@@ -310,8 +313,9 @@ func TestLineIndex(t *testing.T) {
 			givenFile: newFileToCheck(t,
 				[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 				[]bool{false, false, false, false, false},
+				false,
 			),
-			givenNeedle: newFileLine("xxxxxxxxxx"),
+			givenNeedle: newFileLine("xxxxxxxxxx", false),
 			wantLine:    -1,
 		},
 		{
@@ -319,8 +323,9 @@ func TestLineIndex(t *testing.T) {
 			givenFile: newFileToCheck(t,
 				[]string{"aaaaaaaaaa", "bbbbbbbbbb", "aaaaaaaaaa", "dddddddddd", "eeeeeeeeee"},
 				[]bool{false, false, false, false, false},
+				false,
 			),
-			givenNeedle:    newFileLine("aaaaaaaaaa"),
+			givenNeedle:    newFileLine("aaaaaaaaaa", false),
 			givenStartLine: 1,
 			wantLine:       2,
 			wantLevel:      EqualSimilarityLevel,
@@ -330,8 +335,9 @@ func TestLineIndex(t *testing.T) {
 			givenFile: newFileToCheck(t,
 				[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 				[]bool{false, false, false, false, false},
+				false,
 			),
-			givenNeedle:    newFileLine("aaaaaaaaaa"),
+			givenNeedle:    newFileLine("aaaaaaaaaa", false),
 			givenStartLine: 1,
 			wantLine:       -1,
 		},
@@ -340,8 +346,9 @@ func TestLineIndex(t *testing.T) {
 			givenFile: newFileToCheck(t,
 				[]string{"aaaaaaaaaa", "bbbbbbbbbb", "aaaaaaaaaa", "dddddddddd", "eeeeeeeeee"},
 				[]bool{true, false, false, false, false},
+				false,
 			),
-			givenNeedle: newFileLine("aaaaaaaaaa"),
+			givenNeedle: newFileLine("aaaaaaaaaa", false),
 			wantLine:    2,
 			wantLevel:   EqualSimilarityLevel,
 		},
@@ -350,8 +357,9 @@ func TestLineIndex(t *testing.T) {
 			givenFile: newFileToCheck(t,
 				[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 				[]bool{true, false, false, false, false},
+				false,
 			),
-			givenNeedle: newFileLine("aaaaaaaaaa"),
+			givenNeedle: newFileLine("aaaaaaaaaa", false),
 			wantLine:    -1,
 		},
 		{
@@ -359,8 +367,9 @@ func TestLineIndex(t *testing.T) {
 			givenFile: newFileToCheck(t,
 				[]string{"aaaaaxaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 				[]bool{false, false, false, false, false},
+				false,
 			),
-			givenNeedle: newFileLine("aaaaaaaaaa"),
+			givenNeedle: newFileLine("aaaaaaaaaa", false),
 			wantLine:    0,
 			wantLevel:   SimilarSimilarityLevel,
 		},
@@ -392,9 +401,9 @@ func TestLineIndex_Large(t *testing.T) {
 	data, _ := io.ReadAll(osFile)
 	texts := strings.Split(string(data), "\n")
 
-	file := newFileToCheck(t, texts, make([]bool, len(texts)))
+	file := newFileToCheck(t, texts, make([]bool, len(texts)), false)
 
-	needle := newFileLine(texts[50][:10] + "x" + texts[50][10:])
+	needle := newFileLine(texts[50][:10]+"x"+texts[50][10:], false)
 
 	opts := Options{MaxEditDistance: 2}
 
@@ -419,6 +428,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, false, false, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -426,6 +436,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, false, false, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -440,6 +451,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, false, false, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -447,6 +459,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "     cccccccccc     ", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, false, false, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -461,6 +474,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, false, false, false},
+						true,
 					),
 					Start: 0, End: 1,
 				},
@@ -468,6 +482,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "     cccccccccc     ", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, false, false, false},
+						true,
 					),
 					Start: 0, End: 1,
 				},
@@ -483,6 +498,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, false, false, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -490,6 +506,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, false, false, false, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -504,6 +521,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, false, false, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -511,6 +529,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, false, false, false, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -526,6 +545,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, true, false, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -533,6 +553,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, false, false, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -547,6 +568,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, false, false, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -554,6 +576,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, true, false, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -568,6 +591,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, false, false, false, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -575,6 +599,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, false, true, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -590,6 +615,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 						[]bool{false, false, false, false, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -597,6 +623,7 @@ func TestExpandOccurrences(t *testing.T) {
 					fileToCheck: newFileToCheck(t,
 						[]string{"aaaaaxaaaa", "bbbbbbbbbb", "cccccxcccc", "dddddddddd", "eeeeeexeee"},
 						[]bool{false, false, false, false, false},
+						false,
 					),
 					Start: 0, End: 1,
 				},
@@ -632,30 +659,30 @@ func TestLineOccurrences(t *testing.T) {
 	}{
 		{
 			description:     "single",
-			givenFile:       newFileToCheck(t, []string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"}, []bool{false, false, false, false, false}),
-			givenLine:       newFileLine("aaaaaaaaaa"),
+			givenFile:       newFileToCheck(t, []string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"}, []bool{false, false, false, false, false}, false),
+			givenLine:       newFileLine("aaaaaaaaaa", false),
 			wantOccurrences: []*FileOccurrence{{Start: 0, End: 1}},
 			wantLevel:       EqualSimilarityLevel,
 		},
 		{
 			description:     "multiple",
-			givenFile:       newFileToCheck(t, []string{"aaaaaaaaaa", "bbbbbbbbbb", "aaaaaaaaaa", "aaaaaaaaaa", "eeeeeeeeee"}, []bool{false, false, false, false, false}),
-			givenLine:       newFileLine("aaaaaaaaaa"),
+			givenFile:       newFileToCheck(t, []string{"aaaaaaaaaa", "bbbbbbbbbb", "aaaaaaaaaa", "aaaaaaaaaa", "eeeeeeeeee"}, []bool{false, false, false, false, false}, false),
+			givenLine:       newFileLine("aaaaaaaaaa", false),
 			wantOccurrences: []*FileOccurrence{{Start: 0, End: 1}, {Start: 2, End: 3}, {Start: 3, End: 4}},
 			wantLevel:       EqualSimilarityLevel,
 		},
 		{
 			description:     "startLine > 0",
-			givenFile:       newFileToCheck(t, []string{"aaaaaaaaaa", "bbbbbbbbbb", "aaaaaaaaaa", "dddddddddd", "eeeeeeeeee"}, []bool{false, false, false, false, false}),
-			givenLine:       newFileLine("aaaaaaaaaa"),
+			givenFile:       newFileToCheck(t, []string{"aaaaaaaaaa", "bbbbbbbbbb", "aaaaaaaaaa", "dddddddddd", "eeeeeeeeee"}, []bool{false, false, false, false, false}, false),
+			givenLine:       newFileLine("aaaaaaaaaa", false),
 			givenStartLine:  1,
 			wantOccurrences: []*FileOccurrence{{Start: 2, End: 3}},
 			wantLevel:       EqualSimilarityLevel,
 		},
 		{
 			description:     "similar",
-			givenFile:       newFileToCheck(t, []string{"aaaaaxaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"}, []bool{false, false, false, false, false}),
-			givenLine:       newFileLine("aaaaaaaaaa"),
+			givenFile:       newFileToCheck(t, []string{"aaaaaxaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"}, []bool{false, false, false, false, false}, false),
+			givenLine:       newFileLine("aaaaaaaaaa", false),
 			wantOccurrences: []*FileOccurrence{{Start: 0, End: 1}},
 			wantLevel:       SimilarSimilarityLevel,
 		},
@@ -688,8 +715,8 @@ func TestFileSimilarities_SingleFile_SingleSimilarity(t *testing.T) {
 	lines := []string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "aaaaaaaaaa", "bbbbbbbbbb", "xxxxxxxxxx", "aaaaaaaaaa", "bbbbbbbbbb"}
 	linesDone := []bool{false, false, false, false, false, false, false, false}
 
-	givenFileToCheck := newFileToCheck(t, lines, linesDone)
-	givenFileToCheck.peers = []*fileToCheck{newFileToCheck(t, lines, linesDone)}
+	givenFileToCheck := newFileToCheck(t, lines, linesDone, false)
+	givenFileToCheck.peers = []*fileToCheck{newFileToCheck(t, lines, linesDone, false)}
 	givenFileToCheck.peers[0].f = givenFileToCheck.f
 
 	wantSimilarities := []*Similarity{
@@ -714,8 +741,8 @@ func TestFileSimilarities_SingleFile_MultipleSimilarities(t *testing.T) {
 	lines := []string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee", "aaaaaaaaaa", "bbbbbbbbbb", "ffffffffff", "dddddddddd"}
 	linesDone := []bool{false, false, false, false, false, false, false, false, false}
 
-	givenFileToCheck := newFileToCheck(t, lines, linesDone)
-	givenFileToCheck.peers = []*fileToCheck{newFileToCheck(t, lines, linesDone)}
+	givenFileToCheck := newFileToCheck(t, lines, linesDone, false)
+	givenFileToCheck.peers = []*fileToCheck{newFileToCheck(t, lines, linesDone, false)}
 	givenFileToCheck.peers[0].f = givenFileToCheck.f
 
 	wantSimilarities := []*Similarity{
@@ -753,10 +780,10 @@ func TestFileSimilarities_MultipleFiles(t *testing.T) {
 	lines2 := []string{"wwwwwwwwww", "xxxxxxxxxx", "bbbbbbbbbb", "yyyyyyyyyy", "zzzzzzzzzz"}
 	lines2Done := []bool{false, false, false, false, false}
 
-	givenFileToCheck := newFileToCheck(t, lines1, lines1Done)
+	givenFileToCheck := newFileToCheck(t, lines1, lines1Done, false)
 	givenFileToCheck.peers = []*fileToCheck{
-		newFileToCheck(t, lines1, lines1Done),
-		newFileToCheck(t, lines2, lines2Done),
+		newFileToCheck(t, lines1, lines1Done, false),
+		newFileToCheck(t, lines2, lines2Done, false),
 	}
 	givenFileToCheck.peers[0].f = givenFileToCheck.f
 
@@ -782,8 +809,8 @@ func TestFileSimilarities_IgnoreBlankLines(t *testing.T) {
 	lines := []string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "aaaaaaaaaa", "", "bbbbbbbbbb", "xxxxxxxxxx", "aaaaaaaaaa", "bbbbbbbbbb"}
 	linesDone := []bool{false, false, false, false, false, false, false, false, false}
 
-	givenFileToCheck := newFileToCheck(t, lines, linesDone)
-	givenFileToCheck.peers = []*fileToCheck{newFileToCheck(t, lines, linesDone)}
+	givenFileToCheck := newFileToCheck(t, lines, linesDone, false)
+	givenFileToCheck.peers = []*fileToCheck{newFileToCheck(t, lines, linesDone, false)}
 	givenFileToCheck.peers[0].f = givenFileToCheck.f
 
 	wantSimilarities := []*Similarity{
@@ -808,9 +835,9 @@ func TestFileSimilarities_IgnoreRegex(t *testing.T) {
 	lines := []string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc"}
 	linesDone := []bool{false, false, false, false, false, false}
 
-	givenFileToCheck := newFileToCheck(t, lines, linesDone)
+	givenFileToCheck := newFileToCheck(t, lines, linesDone, false)
 	givenFileToCheck.f.lines[2].flags |= matchesIgnoreRegexLineFlag
-	givenFileToCheck.peers = []*fileToCheck{newFileToCheck(t, lines, linesDone)}
+	givenFileToCheck.peers = []*fileToCheck{newFileToCheck(t, lines, linesDone, false)}
 	givenFileToCheck.peers[0].f = givenFileToCheck.f
 
 	wantSimilarities := []*Similarity{
@@ -841,10 +868,10 @@ func TestFileSimilarities_MinSimilarLines(t *testing.T) {
 	lines2 := []string{"aaaaaaaaaa", "xxxxxxxxxx", "yyyyyyyyyy"}
 	lines2Done := []bool{false, false, false}
 
-	givenFileToCheck := newFileToCheck(t, lines1, lines1Done)
+	givenFileToCheck := newFileToCheck(t, lines1, lines1Done, false)
 	givenFileToCheck.peers = []*fileToCheck{
-		newFileToCheck(t, lines1, lines1Done),
-		newFileToCheck(t, lines2, lines2Done),
+		newFileToCheck(t, lines1, lines1Done, false),
+		newFileToCheck(t, lines2, lines2Done, false),
 	}
 	givenFileToCheck.peers[0].f = givenFileToCheck.f
 
@@ -869,8 +896,8 @@ func TestFileSimilarities_Similar(t *testing.T) {
 	lines := []string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "aaaaxaaaaa", "bbbbbbbbbb", "xxxxxxxxxx", "aaaaaaaaaa", "bbbbbbbbbb"}
 	linesDone := []bool{false, false, false, false, false, false, false, false}
 
-	givenFileToCheck := newFileToCheck(t, lines, linesDone)
-	givenFileToCheck.peers = []*fileToCheck{newFileToCheck(t, lines, linesDone)}
+	givenFileToCheck := newFileToCheck(t, lines, linesDone, false)
+	givenFileToCheck.peers = []*fileToCheck{newFileToCheck(t, lines, linesDone, false)}
 	givenFileToCheck.peers[0].f = givenFileToCheck.f
 
 	wantSimilarities := []*Similarity{
@@ -985,7 +1012,7 @@ func TestFile_Load(t *testing.T) {
 
 	file := newFile("test.txt", "aaaaaaaaaa\nbbbbbbbbbb\nfoo\ncccccccccc\n𨊂\ndddddddddd\neeeeeeeeee\n")
 
-	wantLines := newFileLinesSlice(t, []string{"aaaaaaaaaa", "bbbbbbbbbb", "foo", "cccccccccc", "𨊂", "dddddddddd", "eeeeeeeeee"})
+	wantLines := newFileLinesSlice(t, []string{"aaaaaaaaaa", "bbbbbbbbbb", "foo", "cccccccccc", "𨊂", "dddddddddd", "eeeeeeeeee"}, false)
 
 	_ = file.load(&Options{
 		IgnoreLineRegex: regexp.MustCompile("foo"),
@@ -995,9 +1022,7 @@ func TestFile_Load(t *testing.T) {
 
 	for i := 0; i < len(file.lines); i++ {
 		is.Equal(file.lines[i].text, wantLines[i].text)
-		is.Equal(file.lines[i].textTrimmed, wantLines[i].textTrimmed)
 		is.Equal(file.lines[i].length, wantLines[i].length)
-		is.Equal(file.lines[i].lengthTrimmed, wantLines[i].lengthTrimmed)
 	}
 
 	is.True(file.lines[2].flagSet(matchesIgnoreRegexLineFlag))
@@ -1008,11 +1033,11 @@ func TestFile_Load(t *testing.T) {
 func TestFileLine_LongEnough(t *testing.T) {
 	is := is.New(t)
 
-	is.True(newFileLine("foo").longEnough(&Options{}))
-	is.True(!newFileLine("foo").longEnough(&Options{MinLineLength: 5}))
-	is.True(newFileLine("").longEnough(&Options{}))
-	is.True(newFileLine("").longEnough(&Options{MinLineLength: 5}))
-	is.True(newFileLine("  foo  ").longEnough(&Options{Flags: IgnoreWhitespaceFlag, MinLineLength: 3}))
+	is.True(newFileLine("foo", false).longEnough(&Options{}))
+	is.True(!newFileLine("foo", false).longEnough(&Options{MinLineLength: 5}))
+	is.True(newFileLine("", false).longEnough(&Options{}))
+	is.True(newFileLine("", false).longEnough(&Options{MinLineLength: 5}))
+	is.True(newFileLine("  foo  ", true).longEnough(&Options{Flags: IgnoreWhitespaceFlag, MinLineLength: 3}))
 }
 
 func newFile(name string, text string) *File {
@@ -1022,7 +1047,7 @@ func newFile(name string, text string) *File {
 	}
 }
 
-func newFileToCheck(t testingTOrB, texts []string, done []bool) *fileToCheck {
+func newFileToCheck(t testingTOrB, texts []string, done []bool, ignoreWS bool) *fileToCheck {
 	t.Helper()
 
 	if len(texts) != len(done) {
@@ -1036,24 +1061,28 @@ func newFileToCheck(t testingTOrB, texts []string, done []bool) *fileToCheck {
 
 	return &fileToCheck{
 		f: &File{
-			lines: newFileLinesSlice(t, texts),
+			lines: newFileLinesSlice(t, texts, ignoreWS),
 		},
 		linesDone: linesDone,
 	}
 }
 
-func newFileLinesSlice(t testingTOrB, texts []string) []*fileLine {
+func newFileLinesSlice(t testingTOrB, texts []string, ignoreWS bool) []*fileLine {
 	t.Helper()
 
 	lines := make([]*fileLine, len(texts))
 	for i, t := range texts {
-		lines[i] = newFileLine(t)
+		lines[i] = newFileLine(t, ignoreWS)
 	}
 
 	return lines
 }
 
-func newFileLine(text string) *fileLine {
+func newFileLine(text string, ignoreWS bool) *fileLine {
+	if ignoreWS {
+		text = strings.TrimSpace(text)
+	}
+
 	textRunes := []rune(text)
 	length := len(textRunes)
 
@@ -1063,18 +1092,7 @@ func newFileLine(text string) *fileLine {
 		length:    length,
 	}
 
-	if textTrimmed := strings.TrimSpace(text); textTrimmed != text {
-		line.textTrimmed = textTrimmed
-		textTrimmedRunes := []rune(textTrimmed)
-		line.textTrimmedRunes = textTrimmedRunes
-		line.lengthTrimmed = len(textTrimmedRunes)
-	} else {
-		line.textTrimmed = text
-		line.textTrimmedRunes = textRunes
-		line.lengthTrimmed = len(textRunes)
-	}
-
-	if line.lengthTrimmed == 0 {
+	if length == 0 {
 		line.flags |= blankLineFlag
 	}
 

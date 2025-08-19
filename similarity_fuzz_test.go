@@ -8,9 +8,11 @@ import (
 	"time"
 )
 
-func FuzzFileSimilarities(f *testing.F) {
-	const maxLines = 100
-	const maxLineLen = 50
+func FuzzFileSimilarities(f *testing.F) { //nolint:gocognit,cyclop // test code
+	const (
+		maxLines   = 100
+		maxLineLen = 50
+	)
 
 	f.Add("line1\nline2\nline3\nline4\n𨊂 € 🚀", 2, 0, 0, false, false)
 	f.Add("", 0, 0, 0, false, false)
@@ -45,17 +47,19 @@ func FuzzFileSimilarities(f *testing.F) {
 			t.SkipNow()
 		}
 
-		for i, line := range lines {
+		for idx, line := range lines {
 			runes := []rune(line)
 			if len(runes) <= maxLineLen {
 				continue
 			}
 
-			lines[i] = string(runes[:maxLineLen])
+			lines[idx] = string(runes[:maxLineLen])
 		}
 
-		var lines1 []string
-		var lines2 []string
+		var (
+			lines1 []string
+			lines2 []string
+		)
 
 		if splitIdx < 0 {
 			lines1 = lines

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/bits"
 	"regexp"
 	"runtime"
 	"sort"
@@ -15,7 +16,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	slowlevenshtein "github.com/agext/levenshtein"
 	tsio "github.com/blizzy78/textsimilarity/internal/io"
 	"github.com/blizzy78/textsimilarity/levenshtein"
 	"github.com/dropbox/godropbox/container/bitvector"
@@ -46,10 +46,6 @@ const DefaultMaxEditDistance = 5
 const (
 	// blankLineFlag is set on a fileLine when that line is blank.
 	blankLineFlag = Flag(1 << iota)
-
-	// slowLevenshteinLineFlag is set on a fileLine when that line's text must be used with the "slow"
-	// Levenshtein distance calculation.
-	slowLevenshteinLineFlag
 
 	// matchesIgnoreRegexLineFlag is set on a fileLine when that line's text matches Options.IgnoreLineRegex.
 	matchesIgnoreRegexLineFlag
@@ -159,6 +155,10 @@ type fileLine struct {
 
 	// length is the length of text (in runes.)
 	length int
+
+	// runeMask hashes the set of runes into 64 bits. Collisions can only cause
+	// extra distance checks, never exclude a possible match.
+	runeMask uint64
 
 	// flags is a set of line flags, such as whether this line is blank.
 	flags Flag
@@ -469,14 +469,16 @@ func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level Simila
 		ends = make([]int, 0, len(occs))
 	}
 
+	ends = ends[:len(occs)]
+	for idx, occ := range occs {
+		ends[idx] = occ.End
+	}
+
+	expanded := false
+
 	for {
 		if contextDone(ctx) {
 			return level
-		}
-
-		for _, occ := range occs {
-			// this will never create a new backing array because of capacity checks above
-			ends = append(ends, occ.End)
 		}
 
 		for idx, occ := range occs {
@@ -527,14 +529,22 @@ func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level Simila
 		}
 
 		// commit new ends
-		for i, occ := range occs {
-			occ.End = ends[i]
+		for idx, occ := range occs {
+			start := occ.End
+			if !expanded {
+				start = occ.Start
+			}
 
-			// mark lines done
-			for l := occ.Start; l < occ.End; l++ {
+			occ.End = ends[idx]
+
+			// Earlier iterations already marked the existing range. Only mark
+			// newly included lines, including any ignored lines we skipped.
+			for l := start; l < occ.End; l++ {
 				occ.fileToCheck.linesDone.set(l, true)
 			}
 		}
+
+		expanded = true
 	}
 }
 
@@ -617,7 +627,7 @@ func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLi
 
 // linesSimilarity returns the similarity level between fileLine1 and fileLine2, according to opts.
 func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) SimilarityLevel {
-	if fileLine1.flags.set(matchesAlwaysDifferentLineFlag) || fileLine2.flags.set(matchesAlwaysDifferentLineFlag) {
+	if (fileLine1.flags|fileLine2.flags)&matchesAlwaysDifferentLineFlag != 0 {
 		return differentSimilarityLevel
 	}
 
@@ -625,6 +635,11 @@ func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) Si
 		return EqualSimilarityLevel
 	}
 
+	return differentLinesSimilarity(fileLine1, fileLine2, opts)
+}
+
+// differentLinesSimilarity classifies lines whose text is not exactly equal.
+func differentLinesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) SimilarityLevel {
 	lenDiff := fileLine1.length - fileLine2.length
 	if lenDiff < 0 {
 		lenDiff = -lenDiff
@@ -639,22 +654,19 @@ func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) Si
 		return differentSimilarityLevel
 	}
 
-	if levenshteinDistance(fileLine1, fileLine2) > maxDist {
+	// Each distinct rune absent from the other line requires at least one
+	// edit. A substitution can fix one missing rune on each side, so test
+	// the sides separately rather than adding their counts.
+	if bits.OnesCount64(fileLine1.runeMask&^fileLine2.runeMask) > maxDist ||
+		bits.OnesCount64(fileLine2.runeMask&^fileLine1.runeMask) > maxDist {
+		return differentSimilarityLevel
+	}
+
+	if !levenshtein.WithinDistance(fileLine1.textRunes, fileLine2.textRunes, maxDist) {
 		return differentSimilarityLevel
 	}
 
 	return SimilarSimilarityLevel
-}
-
-// levenshteinDistance returns the Levenshtein distance between line1 and line2.
-func levenshteinDistance(fileLine1 *fileLine, fileLine2 *fileLine) int {
-	slow := fileLine1.flagSet(slowLevenshteinLineFlag) || fileLine2.flagSet(slowLevenshteinLineFlag)
-
-	if slow {
-		return slowlevenshtein.Distance(fileLine1.text, fileLine2.text, nil)
-	}
-
-	return levenshtein.Distance(fileLine1.textRunes, fileLine2.textRunes)
 }
 
 // load loads all lines from f, and sets up f accordingly, such as setting flags.
@@ -693,8 +705,8 @@ func textToFileLine(text string, opts *Options) *fileLine {
 		length:    length,
 	}
 
-	if needsSlowLevenshtein(line.text) {
-		line.flags |= slowLevenshteinLineFlag
+	for _, char := range textRunes {
+		line.runeMask |= uint64(1) << (uint32(char) & 63)
 	}
 
 	if length == 0 {
@@ -712,18 +724,6 @@ func textToFileLine(text string, opts *Options) *fileLine {
 	}
 
 	return &line
-}
-
-// needsSlowLevenshtein returns whether a slower Levenshtein distance comparison must be used to compare s
-// to any other string. This is the case if s contains any rune >65535.
-func needsSlowLevenshtein(s string) bool {
-	for _, r := range s {
-		if r > 65535 {
-			return true
-		}
-	}
-
-	return false
 }
 
 // flagSet returns whether f is set in o.

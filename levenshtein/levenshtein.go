@@ -17,19 +17,34 @@ var uint64sPool = sync.Pool{
 	},
 }
 
-func m64(a []rune, b []rune, uint64s *[uintsSize]uint64) int {
-	peq := uint64s[:peqSize]
+// m64 computes the distance with a pattern of 1 to 64 runes. Most source
+// lines need only the stack-allocated ASCII table; other runes use a map.
+func m64(pattern []rune, text []rune) int {
+	var ascii [128]uint64
+	var other map[rune]uint64
+	for idx, char := range pattern {
+		mask := uint64(1) << idx
+		if uint32(char) < uint32(len(ascii)) {
+			ascii[char] |= mask
+		} else {
+			if other == nil {
+				other = make(map[rune]uint64)
+			}
+			other[char] |= mask
+		}
+	}
 
+	sc := len(pattern)
+	ls := uint64(1) << (sc - 1)
 	pv := ^uint64(0)
 	mv := uint64(0)
-	sc := 0
-	for _, c := range a {
-		peq[c] |= uint64(1) << sc
-		sc++
-	}
-	ls := uint64(1) << (sc - 1)
-	for _, c := range b {
-		eq := peq[c]
+	for _, char := range text {
+		var eq uint64
+		if uint32(char) < uint32(len(ascii)) {
+			eq = ascii[char]
+		} else {
+			eq = other[char]
+		}
 		xv := eq | mv
 		eq |= ((eq & pv) + pv) ^ pv
 		mv |= ^(eq | pv)
@@ -43,9 +58,6 @@ func m64(a []rune, b []rune, uint64s *[uintsSize]uint64) int {
 		mv = (mv << 1) | 1
 		pv = (pv << 1) | ^(xv | mv)
 		mv &= xv
-	}
-	for _, c := range a {
-		peq[c] = 0
 	}
 	return sc
 }
@@ -141,6 +153,8 @@ func mx(s1 []rune, s2 []rune, uint64s *[uintsSize]uint64) int {
 }
 
 func Distance(a []rune, b []rune) int {
+	a, b = trimEqualEnds(a, b)
+
 	if len(a) < len(b) {
 		a, b = b, a
 	}
@@ -149,12 +163,12 @@ func Distance(a []rune, b []rune) int {
 		return len(a)
 	}
 
+	if len(b) <= 64 {
+		return m64(b, a)
+	}
+
 	uint64s := uint64sPool.Get().(*[uintsSize]uint64) //nolint:forcetypeassert // we know what's in the pool
 	defer uint64sPool.Put(uint64s)
-
-	if len(a) <= 64 {
-		return m64(a, b, uint64s)
-	}
 
 	return mx(a, b, uint64s)
 }

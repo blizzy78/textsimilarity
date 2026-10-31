@@ -1027,7 +1027,7 @@ func TestFile_Load(t *testing.T) {
 
 	is.True(file.lines[2].flagSet(matchesIgnoreRegexLineFlag))
 
-	is.True(file.lines[4].flagSet(slowLevenshteinLineFlag))
+	is.Equal(file.lines[4].textRunes, []rune("𨊂"))
 }
 
 func TestFileLine_LongEnough(t *testing.T) {
@@ -1079,24 +1079,12 @@ func newFileLinesSlice(t testingTOrB, texts []string, ignoreWS bool) []*fileLine
 }
 
 func newFileLine(text string, ignoreWS bool) *fileLine {
+	opts := &Options{}
 	if ignoreWS {
-		text = strings.TrimSpace(text)
+		opts.Flags = IgnoreWhitespaceFlag
 	}
 
-	textRunes := []rune(text)
-	length := len(textRunes)
-
-	line := fileLine{
-		text:      text,
-		textRunes: textRunes,
-		length:    length,
-	}
-
-	if length == 0 {
-		line.flags |= blankLineFlag
-	}
-
-	return &line
+	return textToFileLine(text, opts)
 }
 
 func readSimilaritiesChan(ch <-chan *Similarity) []*Similarity {

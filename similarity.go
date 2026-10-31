@@ -324,6 +324,7 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 
 		occurrences := []*FileOccurrence{}
 		level := EqualSimilarityLevel
+		tooShort := false
 
 		for _, peerFile := range file.peers {
 			if contextDone(ctx) {
@@ -333,6 +334,20 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 			startLine := 0
 			if file.f == peerFile.f {
 				startLine = fileLineIdx + 1
+			}
+
+			if opts.MinSimilarLines > 1 {
+				first, _ := lineIndex(ctx, peerFile, line, startLine, opts)
+				if first < 0 {
+					continue
+				}
+
+				if !canReachMinimum(ctx, file, fileLineIdx, peerFile, first, opts) {
+					tooShort = true
+					break
+				}
+
+				startLine = first
 			}
 
 			peerFileOccurrences, peerFileLevel := lineOccurrences(ctx, peerFile, line, startLine, opts)
@@ -347,7 +362,7 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 			}
 		}
 
-		if len(occurrences) == 0 {
+		if tooShort || len(occurrences) == 0 {
 			continue
 		}
 
@@ -363,8 +378,9 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 
 		level = expandOccurrences(ctx, occurrences, level, opts)
 
-		occurrences = filterSameFileOverlappingOccurrences(occurrences)
-		if len(occurrences) < 2 {
+		// The first occurrence is always retained by overlap filtering. Reject
+		// short matches before building that filter, resetting every touched range.
+		if occurrences[0].End-occurrences[0].Start < opts.MinSimilarLines {
 			// reset lines done
 			for _, occ := range occurrences {
 				for l := occ.Start; l < occ.End; l++ {
@@ -375,7 +391,8 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 			continue
 		}
 
-		if occurrences[0].End-occurrences[0].Start < opts.MinSimilarLines {
+		occurrences = filterSameFileOverlappingOccurrences(occurrences)
+		if len(occurrences) < 2 {
 			// reset lines done
 			for _, occ := range occurrences {
 				for l := occ.Start; l < occ.End; l++ {
@@ -410,6 +427,43 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 	}
 
 	return sims
+}
+
+// canReachMinimum checks a necessary condition for expanding the full set of
+// occurrences. It never marks lines: other occurrences can only shorten the
+// eventual expansion by marking additional lines done, not extend it.
+func canReachMinimum(ctx context.Context, source *fileToCheck, sourceStart int, peer *fileToCheck, peerStart int, opts *Options) bool {
+	sourceEnd, peerEnd := sourceStart+1, peerStart+1
+	for sourceEnd-sourceStart < opts.MinSimilarLines {
+		if contextDone(ctx) {
+			return false
+		}
+
+		left := nextAcceptedLine(ctx, source, sourceEnd, opts)
+
+		right := nextAcceptedLine(ctx, peer, peerEnd, opts)
+		if left < 0 || right < 0 || linesSimilarity(source.f.lines[left], peer.f.lines[right], opts) == differentSimilarityLevel {
+			return false
+		}
+
+		sourceEnd, peerEnd = left+1, right+1
+	}
+
+	return true
+}
+
+func nextAcceptedLine(ctx context.Context, file *fileToCheck, start int, opts *Options) int {
+	for idx := start; idx < len(file.f.lines); idx++ {
+		if contextDone(ctx) || file.linesDone.isSet(idx) {
+			return -1
+		}
+
+		if acceptLine(file.f.lines[idx], opts) {
+			return idx
+		}
+	}
+
+	return -1
 }
 
 // markOccurrencesLinesDone marks all lines as done that are referred to by occs.
@@ -482,26 +536,12 @@ func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level Simila
 		}
 
 		for idx, occ := range occs {
-			for {
-				if contextDone(ctx) {
-					return level
-				}
-
-				ends[idx]++
-
-				if ends[idx] > len(occ.fileToCheck.f.lines) {
-					return level
-				}
-
-				if occ.fileToCheck.linesDone.isSet(ends[idx] - 1) {
-					return level
-				}
-
-				line := occ.fileToCheck.f.lines[ends[idx]-1]
-				if acceptLine(line, opts) {
-					break
-				}
+			next := nextAcceptedLine(ctx, occ.fileToCheck, ends[idx], opts)
+			if next < 0 {
+				return level
 			}
+
+			ends[idx] = next + 1
 		}
 
 		// check if files are still similar
@@ -551,20 +591,20 @@ func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level Simila
 // filterSameFileOverlappingOccurrences filters out occurrences that overlap with each other in the same file.
 func filterSameFileOverlappingOccurrences(occurrences []*FileOccurrence) []*FileOccurrence {
 	nonOverlapping := make([]*FileOccurrence, 0, len(occurrences))
+	byFile := make(map[*File][]*FileOccurrence)
 
 	for _, occ := range occurrences {
-		overlap := false
+		accepted := byFile[occ.fileToCheck.f]
 
-		for _, nonOverlapOcc := range nonOverlapping {
-			if nonOverlapOcc.fileToCheck.f != occ.fileToCheck.f {
-				continue
-			}
-
-			if nonOverlapOcc.Start < occ.End && occ.Start < nonOverlapOcc.End {
-				overlap = true
-				break
-			}
+		position := len(accepted)
+		if position > 0 && occ.Start < accepted[position-1].End {
+			position = sort.Search(len(accepted), func(idx int) bool {
+				return accepted[idx].Start >= occ.Start
+			})
 		}
+
+		overlap := position > 0 && accepted[position-1].End > occ.Start ||
+			position < len(accepted) && accepted[position].Start < occ.End
 
 		if overlap {
 			// reset lines done
@@ -574,6 +614,11 @@ func filterSameFileOverlappingOccurrences(occurrences []*FileOccurrence) []*File
 
 			continue
 		}
+
+		accepted = append(accepted, nil)
+		copy(accepted[position+1:], accepted[position:len(accepted)-1])
+		accepted[position] = occ
+		byFile[occ.fileToCheck.f] = accepted
 
 		nonOverlapping = append(nonOverlapping, occ)
 	}

@@ -71,10 +71,7 @@ func min(x int, y int) int {
 }
 
 //nolint:wsl,gocognit,cyclop,varnamelen // copied code
-func mx(s1 []rune, s2 []rune, uint64s *[uintsSize]uint64) int {
-	peq := uint64s[:peqSize]
-	phc := uint64s[peqSize : peqSize+phcMhcSize]
-	mhc := uint64s[peqSize+phcMhcSize:]
+func mx(s1 []rune, s2 []rune, peq, phc, mhc []uint64) int {
 
 	n := len(s1)
 	m := len(s2)
@@ -167,8 +164,23 @@ func Distance(a []rune, b []rune) int {
 		return m64(b, a)
 	}
 
+	if len(a) <= phcMhcSize*64 && asciiRunes(a) && asciiRunes(b) {
+		var masks [128]uint64
+		var carries [phcMhcSize * 2]uint64
+		return mx(a, b, masks[:], carries[:phcMhcSize], carries[phcMhcSize:])
+	}
+
 	uint64s := uint64sPool.Get().(*[uintsSize]uint64) //nolint:forcetypeassert // we know what's in the pool
 	defer uint64sPool.Put(uint64s)
 
-	return mx(a, b, uint64s)
+	return mx(a, b, uint64s[:peqSize], uint64s[peqSize:peqSize+phcMhcSize], uint64s[peqSize+phcMhcSize:])
+}
+
+func asciiRunes(text []rune) bool {
+	for _, char := range text {
+		if char < 0 || char >= 128 {
+			return false
+		}
+	}
+	return true
 }

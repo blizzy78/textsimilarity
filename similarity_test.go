@@ -1027,7 +1027,7 @@ func TestFile_Load(t *testing.T) {
 
 	is.True(file.lines[2].flagSet(matchesIgnoreRegexLineFlag))
 
-	is.Equal(file.lines[4].textRunes, []rune("𨊂"))
+	is.Equal(file.lines[4].textData().runes, []rune("𨊂"))
 }
 
 func TestFileLine_LongEnough(t *testing.T) {

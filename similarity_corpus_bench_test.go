@@ -2,45 +2,48 @@ package textsimilarity
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// BenchmarkSimilaritiesCorpus checks every Java file directly in the directory
+// BenchmarkSimilaritiesCorpus checks every file recursively in the directory
 // selected by TEXTSIMILARITY_CORPUS, with the CLI's default similarity options.
 func BenchmarkSimilaritiesCorpus(b *testing.B) { //nolint:gocognit,cyclop // external corpus loading and complete API measurement
 	dir := os.Getenv("TEXTSIMILARITY_CORPUS")
 	if dir == "" {
-		b.Skip("set TEXTSIMILARITY_CORPUS to a Java source package")
-	}
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		b.Fatal(err)
+		b.Skip("set TEXTSIMILARITY_CORPUS to a text corpus directory")
 	}
 
 	var names, texts []string
 
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".java" {
-			continue
+	err := filepath.WalkDir(dir, func(name string, entry os.DirEntry, walkErr error) error { //nolint:gosec // the benchmark intentionally walks the caller-selected corpus
+		if walkErr != nil {
+			return walkErr
 		}
 
-		name := filepath.Join(dir, entry.Name())
+		if entry.IsDir() {
+			return nil
+		}
 
 		data, err := os.ReadFile(name) //nolint:gosec // the benchmark intentionally reads the caller-selected corpus
 		if err != nil {
-			b.Fatal(err)
+			return fmt.Errorf("read corpus file: %w", err)
 		}
 
 		names = append(names, name)
 		texts = append(texts, string(data))
+
+		return nil
+	})
+	if err != nil {
+		b.Fatal(err)
 	}
 
 	if len(names) == 0 {
-		b.Fatal("no Java source files")
+		b.Fatal("no corpus files")
 	}
 
 	opts := &Options{MinSimilarLines: 10}

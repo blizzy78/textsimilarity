@@ -51,6 +51,24 @@ func TestDistanceShortPatterns(t *testing.T) {
 	}
 }
 
+func TestDistanceASCIIBlocks(t *testing.T) {
+	random := rand.New(rand.NewPCG(31, 32)) //nolint:gosec // deterministic test inputs
+
+	for _, length := range []int{65, 127, 128, 129, 255, 256, 257, 1024} {
+		left, right := make([]rune, length), make([]rune, length+17)
+		for idx := range left {
+			left[idx] = rune(random.Uint32() & 127)
+		}
+
+		for idx := range right {
+			right[idx] = rune(random.Uint32() & 127)
+		}
+
+		checkExactDistance(t, left, right)
+		checkExactDistance(t, left, append([]rune("prefix"), left...))
+	}
+}
+
 func checkExactDistance(t *testing.T, left, right []rune) {
 	t.Helper()
 

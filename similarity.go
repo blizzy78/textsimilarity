@@ -1,10 +1,7 @@
 package textsimilarity
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"math/bits"
@@ -15,8 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
-	tsio "github.com/blizzy78/textsimilarity/internal/io"
 	"github.com/blizzy78/textsimilarity/levenshtein"
 	"github.com/dropbox/godropbox/container/bitvector"
 )
@@ -142,26 +139,56 @@ type fileToCheck struct {
 	linesDone *bitVector
 
 	// peers are all the files this file needs to be checked against, including itself.
-	peers []*fileToCheck
+	peers  []*fileToCheck
+	inputs []*File
+	blocks *blockSearch
 }
 
 // A fileLine is a single line of text in a file.
 type fileLine struct {
-	// text is the line of text.
-	text string
+	text                 string
+	length               int
+	flags                Flag
+	bucket, lower, upper byte
+	decoded              atomic.Pointer[lineText]
+}
 
-	// textRunes is the line of text, as runes.
-	textRunes []rune
+type lineText struct {
+	once            sync.Once
+	runes           []rune
+	mask, low, high uint64
+}
 
-	// length is the length of text (in runes.)
-	length int
+func (line *fileLine) textData() *lineText {
+	data := line.decoded.Load()
+	if data == nil {
+		candidate := &lineText{}
+		if line.decoded.CompareAndSwap(nil, candidate) {
+			data = candidate
+		} else {
+			data = line.decoded.Load()
+		}
+	}
 
-	// runeMask hashes the set of runes into 64 bits. Collisions can only cause
-	// extra distance checks, never exclude a possible match.
-	runeMask uint64
+	data.once.Do(func() {
+		data.runes = []rune(line.text)
 
-	// flags is a set of line flags, such as whether this line is blank.
-	flags Flag
+		// Each bin counts runes modulo four. Gray coding makes an insertion or
+		// deletion flip one bit, and a substitution at most two bits. Hash
+		// collisions can only weaken this necessary edit-distance bound.
+		var low, high uint64
+
+		for _, char := range data.runes {
+			bit := uint64(1) << uint32(char&63)
+			data.mask |= bit
+			high ^= low & bit
+			low ^= bit
+		}
+
+		data.low, data.high = low^high, high
+	})
+
+	return data
 }
 
 // A bitVector is a compact set of bits.
@@ -182,32 +209,21 @@ var intSlicePool = sync.Pool{
 func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Similarity, <-chan Progress, error) { //nolint:gocognit,cyclop // it's complicated
 	totalLines := 0
 
+	width := blockWidth(opts)
+
+	buffer := make([]byte, 32*1024)
 	for _, f := range files {
-		if err := f.load(opts); err != nil {
+		if err := f.loadBuffered(opts, width, buffer); err != nil {
 			return nil, nil, err
 		}
 
 		totalLines += len(f.lines)
 	}
 
+	blocks := newBlockSearch(files, opts)
 	filesToCheck := make([]*fileToCheck, len(files))
-
 	for idx, file := range files {
-		ftc := fileToCheck{
-			f:         file,
-			linesDone: newBitVector(len(file.lines)),
-		}
-
-		for _, peerFile := range files {
-			peer := fileToCheck{
-				f:         peerFile,
-				linesDone: newBitVector(len(peerFile.lines)),
-			}
-
-			ftc.peers = append(ftc.peers, &peer)
-		}
-
-		filesToCheck[idx] = &ftc
+		filesToCheck[idx] = &fileToCheck{f: file, inputs: files, blocks: blocks}
 	}
 
 	grp := sync.WaitGroup{}
@@ -313,7 +329,7 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 			break
 		}
 
-		if file.linesDone.isSet(fileLineIdx) {
+		if file.isDone(fileLineIdx) {
 			continue
 		}
 
@@ -322,11 +338,21 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 			continue
 		}
 
+		if !file.blocks.possible(ctx, file, fileLineIdx, opts) {
+			continue
+		}
+
 		occurrences := []*FileOccurrence{}
 		level := EqualSimilarityLevel
 		tooShort := false
 
-		for _, peerFile := range file.peers {
+		peerCount := len(file.peers)
+		if file.inputs != nil {
+			peerCount = len(file.inputs)
+		}
+
+		for peerID := 0; peerID < peerCount; peerID++ {
+			peerFile := file.peerAt(peerID)
 			if contextDone(ctx) {
 				return sims
 			}
@@ -384,7 +410,7 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 			// reset lines done
 			for _, occ := range occurrences {
 				for l := occ.Start; l < occ.End; l++ {
-					occ.fileToCheck.linesDone.set(l, false)
+					occ.fileToCheck.setDone(l, false)
 				}
 			}
 
@@ -396,7 +422,7 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 			// reset lines done
 			for _, occ := range occurrences {
 				for l := occ.Start; l < occ.End; l++ {
-					occ.fileToCheck.linesDone.set(l, false)
+					occ.fileToCheck.setDone(l, false)
 				}
 			}
 
@@ -418,7 +444,7 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 			}
 
 			for l := occ.Start; l < occ.End; l++ {
-				file.linesDone.set(l, true)
+				file.setDone(l, true)
 			}
 		}
 
@@ -454,7 +480,7 @@ func canReachMinimum(ctx context.Context, source *fileToCheck, sourceStart int, 
 
 func nextAcceptedLine(ctx context.Context, file *fileToCheck, start int, opts *Options) int {
 	for idx := start; idx < len(file.f.lines); idx++ {
-		if contextDone(ctx) || file.linesDone.isSet(idx) {
+		if contextDone(ctx) || file.isDone(idx) {
 			return -1
 		}
 
@@ -470,7 +496,7 @@ func nextAcceptedLine(ctx context.Context, file *fileToCheck, start int, opts *O
 func markOccurrencesLinesDone(occs []*FileOccurrence) {
 	for _, occ := range occs {
 		for l := occ.Start; l < occ.End; l++ {
-			occ.fileToCheck.linesDone.set(l, true)
+			occ.fileToCheck.setDone(l, true)
 		}
 	}
 }
@@ -580,7 +606,7 @@ func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level Simila
 			// Earlier iterations already marked the existing range. Only mark
 			// newly included lines, including any ignored lines we skipped.
 			for l := start; l < occ.End; l++ {
-				occ.fileToCheck.linesDone.set(l, true)
+				occ.fileToCheck.setDone(l, true)
 			}
 		}
 
@@ -609,7 +635,7 @@ func filterSameFileOverlappingOccurrences(occurrences []*FileOccurrence) []*File
 		if overlap {
 			// reset lines done
 			for l := occ.Start; l < occ.End; l++ {
-				occ.fileToCheck.linesDone.set(l, false)
+				occ.fileToCheck.setDone(l, false)
 			}
 
 			continue
@@ -657,7 +683,7 @@ func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLi
 			return -1, differentSimilarityLevel
 		}
 
-		if file.linesDone.isSet(lineIdx) {
+		if file.isDone(lineIdx) {
 			continue
 		}
 
@@ -699,15 +725,26 @@ func differentLinesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Op
 		return differentSimilarityLevel
 	}
 
-	// Each distinct rune absent from the other line requires at least one
-	// edit. A substitution can fix one missing rune on each side, so test
-	// the sides separately rather than adding their counts.
-	if bits.OnesCount64(fileLine1.runeMask&^fileLine2.runeMask) > maxDist ||
-		bits.OnesCount64(fileLine2.runeMask&^fileLine1.runeMask) > maxDist {
+	if max(fileLine1.length, fileLine2.length) <= maxDist {
+		return SimilarSimilarityLevel
+	}
+
+	left, right := fileLine1.textData(), fileLine2.textData()
+
+	changes := bits.OnesCount64(left.low^right.low) + bits.OnesCount64(left.high^right.high)
+	if (changes+1)/2 > maxDist {
 		return differentSimilarityLevel
 	}
 
-	if !levenshtein.WithinDistance(fileLine1.textRunes, fileLine2.textRunes, maxDist) {
+	// Each distinct rune absent from the other line requires at least one
+	// edit. A substitution can fix one missing rune on each side, so test
+	// the sides separately rather than adding their counts.
+	if bits.OnesCount64(left.mask&^right.mask) > maxDist ||
+		bits.OnesCount64(right.mask&^left.mask) > maxDist {
+		return differentSimilarityLevel
+	}
+
+	if !levenshtein.WithinDistance(left.runes, right.runes, maxDist) {
 		return differentSimilarityLevel
 	}
 
@@ -715,60 +752,110 @@ func differentLinesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Op
 }
 
 // load loads all lines from f, and sets up f accordingly, such as setting flags.
-func (f *File) load(opts *Options) error {
+func (f *File) load(opts *Options) error { return f.loadBuffered(opts, 0, make([]byte, 32*1024)) }
+
+func (f *File) loadBuffered(opts *Options, width int, buffer []byte) error {
 	f.lines = nil
 
-	reader := bufio.NewReader(f.R)
-	buf := bytes.Buffer{}
+	var builder strings.Builder
 
-	for lineIdx := 0; ; lineIdx++ {
-		text, err := tsio.ReadLine(reader, &buf)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
+	_, err := io.CopyBuffer(&builder, &progressReader{reader: f.R}, buffer)
+	if err != nil {
+		return fmt.Errorf("read line: read line: %w", err)
+	}
 
-			return fmt.Errorf("read line: %w", err)
+	text := builder.String()
+	if text == "" {
+		return nil
+	}
+
+	count := strings.Count(text, "\n")
+	if text[len(text)-1] != 10 {
+		count++
+	}
+
+	values := make([]fileLine, count)
+	f.lines = make([]*fileLine, count)
+
+	for idx := 0; len(text) > 0; idx++ {
+		value, rest, newline := strings.Cut(text, "\n")
+		text = rest
+
+		if newline {
+			value = strings.TrimSuffix(value, "\r")
 		}
 
-		line := textToFileLine(text, opts)
-		f.lines = append(f.lines, line)
+		line := &values[idx]
+		line.fillHeader(value, opts)
+
+		if width > 0 {
+			// A radius of width/2 crosses at most one neighboring bucket.
+			// Wrapping to eight bits can add candidates, never remove them.
+			base, remainder := line.length/width, line.length%width
+			limit := width / 2
+			line.bucket = byte(base & 255)
+
+			line.lower = line.bucket
+			if remainder < limit {
+				line.lower--
+			}
+
+			line.upper = line.bucket
+			if remainder+limit >= width {
+				line.upper++
+			}
+		}
+
+		f.lines[idx] = line
 	}
+
+	return nil
+}
+
+type progressReader struct {
+	reader io.Reader
+	empty  int
+}
+
+func (r *progressReader) Read(data []byte) (int, error) {
+	read, err := r.reader.Read(data)
+	if read == 0 && err == nil {
+		r.empty++
+		if r.empty >= 100 {
+			return 0, io.ErrNoProgress
+		}
+	} else {
+		r.empty = 0
+	}
+
+	return read, err //nolint:wrapcheck // preserve the underlying io.Reader error
 }
 
 func textToFileLine(text string, opts *Options) *fileLine {
+	line := &fileLine{}
+	line.fillHeader(text, opts)
+
+	return line
+}
+func (line *fileLine) fillHeader(text string, opts *Options) {
 	if opts.flagSet(IgnoreWhitespaceFlag) {
 		text = strings.TrimSpace(text)
 	}
 
-	textRunes := []rune(text)
-	length := len(textRunes)
+	line.text = text
 
-	line := fileLine{
-		text:      text,
-		textRunes: textRunes,
-		length:    length,
-	}
-
-	for _, char := range textRunes {
-		line.runeMask |= uint64(1) << (uint32(char) & 63)
-	}
-
-	if length == 0 {
+	line.length = utf8.RuneCountInString(text)
+	if line.length == 0 {
 		line.flags |= blankLineFlag
 	}
 
-	if opts.IgnoreLineRegex != nil || opts.AlwaysDifferentLineRegex != nil {
-		if opts.IgnoreLineRegex != nil && opts.IgnoreLineRegex.MatchString(text) {
-			line.flags |= matchesIgnoreRegexLineFlag
-		}
-
-		if opts.AlwaysDifferentLineRegex != nil && opts.AlwaysDifferentLineRegex.MatchString(text) {
-			line.flags |= matchesAlwaysDifferentLineFlag
-		}
+	if opts.IgnoreLineRegex != nil && opts.IgnoreLineRegex.MatchString(text) {
+		line.flags |= matchesIgnoreRegexLineFlag
 	}
 
-	return &line
+	if opts.AlwaysDifferentLineRegex != nil && opts.AlwaysDifferentLineRegex.MatchString(text) {
+		line.flags |= matchesAlwaysDifferentLineFlag
+	}
 }
 
 // flagSet returns whether f is set in o.
@@ -873,4 +960,31 @@ func sortOccurrences(occs []*FileOccurrence) {
 // contextDone returns whether ctx is done.
 func contextDone(ctx context.Context) bool {
 	return ctx.Err() != nil
+}
+
+func (f *fileToCheck) isDone(line int) bool { return f.linesDone != nil && f.linesDone.isSet(line) }
+func (f *fileToCheck) setDone(line int, done bool) {
+	if f.linesDone == nil {
+		if !done {
+			return
+		}
+
+		f.linesDone = newBitVector(len(f.f.lines))
+	}
+
+	f.linesDone.set(line, done)
+}
+func (f *fileToCheck) peerAt(index int) *fileToCheck {
+	if f.peers == nil {
+		f.peers = make([]*fileToCheck, len(f.inputs))
+	}
+
+	if f.peers[index] == nil {
+		f.peers[index] = &fileToCheck{f: f.inputs[index]}
+	}
+
+	return f.peers[index]
+}
+func (f *fileToCheck) peerDone(file int, line int) bool {
+	return f.peers != nil && f.peers[file] != nil && f.peers[file].isDone(line)
 }

@@ -69,7 +69,7 @@ func TestDistanceASCIIBlocks(t *testing.T) {
 	}
 }
 
-func checkExactDistance(t *testing.T, left, right []rune) {
+func checkExactDistance(t *testing.T, left []rune, right []rune) {
 	t.Helper()
 
 	want := referenceDistance(left, right)

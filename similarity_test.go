@@ -983,18 +983,24 @@ func testFileSimilarities(t *testing.T, givenFile *fileToCheck, givenFlags Flag,
 		MaxEditDistance: 2,
 	})
 
-	is.Equal(len(sims), len(wantSimilarities))
+	if len(sims) != len(wantSimilarities) {
+		t.Fatalf("got %d similarities, want %d", len(sims), len(wantSimilarities))
+	}
 
 	for simIdx, sim := range sims {
-		is.Equal(len(sim.Occurrences), len(wantSimilarities[simIdx].Occurrences))
-
-		for occIdx, occ := range sim.Occurrences {
-			is.Equal(occ.fileToCheck, wantSimilarities[simIdx].Occurrences[occIdx].fileToCheck)
-			is.Equal(occ.Start, wantSimilarities[simIdx].Occurrences[occIdx].Start)
-			is.Equal(occ.End, wantSimilarities[simIdx].Occurrences[occIdx].End)
+		want := wantSimilarities[simIdx] //nolint:gosec // equal lengths are checked above; t.Fatalf stops the test
+		if len(sim.Occurrences) != len(want.Occurrences) {
+			t.Fatalf("similarity %d: got %d occurrences, want %d", simIdx, len(sim.Occurrences), len(want.Occurrences))
 		}
 
-		is.Equal(sim.Level, wantSimilarities[simIdx].Level)
+		for occIdx, occ := range sim.Occurrences {
+			wantOcc := want.Occurrences[occIdx]
+			is.Equal(occ.fileToCheck, wantOcc.fileToCheck)
+			is.Equal(occ.Start, wantOcc.Start)
+			is.Equal(occ.End, wantOcc.End)
+		}
+
+		is.Equal(sim.Level, want.Level)
 	}
 }
 
@@ -1105,7 +1111,7 @@ func readSimilaritiesChan(ch <-chan *Similarity) []*Similarity {
 
 func drainProgressChan(ch <-chan Progress) func() {
 	return func() {
-		for range ch { //nolint:revive // do nothing with channel contents
+		for range ch {
 		}
 	}
 }

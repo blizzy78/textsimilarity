@@ -221,6 +221,7 @@ func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Si
 	}
 
 	blocks := newBlockSearch(files, opts)
+
 	filesToCheck := make([]*fileToCheck, len(files))
 	for idx, file := range files {
 		filesToCheck[idx] = &fileToCheck{f: file, inputs: files, blocks: blocks}
@@ -353,6 +354,7 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 
 		for peerID := 0; peerID < peerCount; peerID++ {
 			peerFile := file.peerAt(peerID)
+
 			if contextDone(ctx) {
 				return sims
 			}
@@ -617,7 +619,7 @@ func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level Simila
 // filterSameFileOverlappingOccurrences filters out occurrences that overlap with each other in the same file.
 func filterSameFileOverlappingOccurrences(occurrences []*FileOccurrence) []*FileOccurrence {
 	nonOverlapping := make([]*FileOccurrence, 0, len(occurrences))
-	byFile := make(map[*File][]*FileOccurrence)
+	byFile := map[*File][]*FileOccurrence{}
 
 	for _, occ := range occurrences {
 		accepted := byFile[occ.fileToCheck.f]
@@ -777,7 +779,7 @@ func (f *File) loadBuffered(opts *Options, width int, buffer []byte) error {
 	values := make([]fileLine, count)
 	f.lines = make([]*fileLine, count)
 
-	for idx := 0; len(text) > 0; idx++ {
+	for idx := 0; len(text) != 0; idx++ {
 		value, rest, newline := strings.Cut(text, "\n")
 		text = rest
 
@@ -890,14 +892,14 @@ func (b *bitVector) set(idx int, v bool) {
 	(*bitvector.BitVector)(b).Set(val, idx)
 }
 
-// longEnough returns whether l is long enough to be considered for similarities at all, according to opts.
-func (l *fileLine) longEnough(opts *Options) bool {
-	return l.flagSet(blankLineFlag) || l.length >= opts.MinLineLength
+// longEnough returns whether line is long enough to be considered for similarities at all, according to opts.
+func (line *fileLine) longEnough(opts *Options) bool {
+	return line.flagSet(blankLineFlag) || line.length >= opts.MinLineLength
 }
 
-// flagSet returns whether f is set in l.
-func (l *fileLine) flagSet(f Flag) bool {
-	return l.flags.set(f)
+// flagSet returns whether f is set in line.
+func (line *fileLine) flagSet(f Flag) bool {
+	return line.flags.set(f)
 }
 
 // set sets flag in f.

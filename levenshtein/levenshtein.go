@@ -28,7 +28,7 @@ func m64(pattern []rune, text []rune) int {
 			ascii[char] |= mask
 		} else {
 			if other == nil {
-				other = make(map[rune]uint64)
+				other = map[rune]uint64{}
 			}
 			other[char] |= mask
 		}
@@ -71,7 +71,7 @@ func min(x int, y int) int {
 }
 
 //nolint:wsl,gocognit,cyclop,varnamelen // copied code
-func mx(s1 []rune, s2 []rune, peq, phc, mhc []uint64) int {
+func mx(s1 []rune, s2 []rune, peq []uint64, phc []uint64, mhc []uint64) int {
 
 	n := len(s1)
 	m := len(s2)

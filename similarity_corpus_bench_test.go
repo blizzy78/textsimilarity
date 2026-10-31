@@ -11,7 +11,7 @@ import (
 
 // BenchmarkSimilaritiesCorpus checks every file recursively in the directory
 // selected by TEXTSIMILARITY_CORPUS, with the CLI's default similarity options.
-func BenchmarkSimilaritiesCorpus(b *testing.B) { //nolint:gocognit,cyclop // external corpus loading and complete API measurement
+func BenchmarkSimilaritiesCorpus(b *testing.B) {
 	dir := os.Getenv("TEXTSIMILARITY_CORPUS")
 	if dir == "" {
 		b.Skip("set TEXTSIMILARITY_CORPUS to a text corpus directory")

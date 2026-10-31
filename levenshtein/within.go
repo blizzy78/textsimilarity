@@ -3,7 +3,7 @@ package levenshtein
 // WithinDistance reports whether the rune-based Levenshtein distance between left
 // and right is at most limit. A negative limit never matches. Unlike Distance's
 // bit-vector implementation, it supports all Unicode code points.
-func WithinDistance(left, right []rune, limit int) bool { //nolint:gocognit,cyclop // banded dynamic programming
+func WithinDistance(left []rune, right []rune, limit int) bool { //nolint:gocognit,cyclop // banded dynamic programming
 	if limit < 0 {
 		return false
 	}
@@ -95,7 +95,7 @@ func WithinDistance(left, right []rune, limit int) bool { //nolint:gocognit,cycl
 // processes 64 columns at once; allow for its higher per-block overhead.
 // Keep the bounded algorithm for Unicode outside the bit-vector table and for
 // inputs exceeding the fixed carry buffers used by Distance.
-func useBitVector(left, right []rune, limit int) bool {
+func useBitVector(left []rune, right []rune, limit int) bool {
 	blocks := (len(right) + 63) / 64
 	if len(right) <= 64 || limit < 2*blocks || len(left) > phcMhcSize*64 {
 		return false
@@ -113,14 +113,14 @@ func useBitVector(left, right []rune, limit int) bool {
 }
 
 // Removing equal prefixes and suffixes preserves Levenshtein distance.
-func trimEqualEnds(left, right []rune) ([]rune, []rune) {
+func trimEqualEnds(left []rune, right []rune) ([]rune, []rune) {
 	start := 0
 	for start < min(len(left), len(right)) && left[start] == right[start] {
 		start++
 	}
 
 	left, right = left[start:], right[start:]
-	for len(left) > 0 && len(right) > 0 && left[len(left)-1] == right[len(right)-1] {
+	for len(left) != 0 && len(right) != 0 && left[len(left)-1] == right[len(right)-1] {
 		left, right = left[:len(left)-1], right[:len(right)-1]
 	}
 

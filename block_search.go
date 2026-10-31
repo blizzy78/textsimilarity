@@ -77,14 +77,15 @@ func newBlockSearch(files []*File, opts *Options) *blockSearch { //nolint:gocogn
 	position := 0
 	index.lengths = make([][]int32, len(files))
 
-	endGroups := make(map[string]int)
+	endGroups := map[string]int{}
+
 	for fileID, file := range files {
 		index.lengths[fileID] = make([]int32, len(file.lines))
 		for idx, line := range file.lines {
 			index.lengths[fileID][idx] = int32(line.length) //nolint:gosec // lengths were checked against MaxInt32 above
 		}
 
-		if len(file.lines) > 0 {
+		if len(file.lines) != 0 {
 			last := len(file.lines) - 1
 			line := file.lines[last]
 
@@ -197,7 +198,7 @@ func (index *blockSearch) possible(ctx context.Context, source *fileToCheck, sta
 
 // All seed occurrences participate in expansion. An unmarked occurrence at EOF
 // prevents that entire group from expanding even one line.
-func (index *blockSearch) matchesEnd(source *fileToCheck, start, limit int, opts *Options) bool {
+func (index *blockSearch) matchesEnd(source *fileToCheck, start int, limit int, opts *Options) bool {
 	needle := source.f.lines[start]
 	if needle.length-index.maxEnd > limit {
 		return false
@@ -220,7 +221,7 @@ func (index *blockSearch) matchesEnd(source *fileToCheck, start, limit int, opts
 	return false
 }
 
-func blockKey(lower, upper [4]byte, selection int) (uint32, bool) {
+func blockKey(lower [4]byte, upper [4]byte, selection int) (uint32, bool) {
 	var key uint32
 
 	for part := range 4 {

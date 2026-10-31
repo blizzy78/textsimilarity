@@ -59,7 +59,7 @@ func TestWithinDistance(t *testing.T) { //nolint:gocognit,cyclop // differential
 	}
 }
 
-func checkWithinDistance(t *testing.T, left, right []rune) {
+func checkWithinDistance(t *testing.T, left []rune, right []rune) {
 	t.Helper()
 
 	distance := referenceDistance(left, right)
@@ -77,7 +77,7 @@ func checkWithinDistance(t *testing.T, left, right []rune) {
 
 // referenceDistance deliberately uses the full matrix, independently of the
 // bounded implementation, to catch incorrect pruning and band boundaries.
-func referenceDistance(left, right []rune) int {
+func referenceDistance(left []rune, right []rune) int {
 	matrix := make([][]int, len(left)+1)
 	for idx := range matrix {
 		matrix[idx] = make([]int, len(right)+1)
@@ -105,7 +105,7 @@ func referenceDistance(left, right []rune) int {
 func FuzzWithinDistance(f *testing.F) {
 	f.Add("kitten", "sitting")
 	f.Add("prefix𨊂suffix", "prefix🚀suffix")
-	f.Fuzz(func(t *testing.T, left, right string) {
+	f.Fuzz(func(t *testing.T, left string, right string) {
 		if len(left) > 512 || len(right) > 512 {
 			t.Skip()
 		}

@@ -25,7 +25,7 @@ func TestLinesSimilarityReference(t *testing.T) { //nolint:gocognit,cyclop // co
 
 		right := append([]rune(nil), left...)
 		for range random.IntN(12) {
-			if len(right) > 0 {
+			if len(right) != 0 {
 				right[random.IntN(len(right))] = alphabet[random.IntN(len(alphabet))]
 			}
 		}

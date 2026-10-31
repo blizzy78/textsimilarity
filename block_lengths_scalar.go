@@ -2,6 +2,6 @@
 
 package textsimilarity
 
-func blockLengthsMatch(left, right []int32, limit int32) bool {
+func blockLengthsMatch(left []int32, right []int32, limit int32) bool {
 	return scalarLengthsMatch(left, right, limit)
 }

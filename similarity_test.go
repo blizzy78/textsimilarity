@@ -3,7 +3,6 @@ package textsimilarity
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -395,15 +394,7 @@ func TestLineIndex(t *testing.T) {
 func TestLineIndex_Large(t *testing.T) {
 	is := is.New(t)
 
-	osFile, _ := os.Open("testdata/lipsum.txt")
-	defer osFile.Close() //nolint:errcheck // file is being read
-
-	data, _ := io.ReadAll(osFile)
-	texts := strings.Split(string(data), "\n")
-
-	file := newFileToCheck(t, texts, make([]bool, len(texts)), false)
-
-	needle := newFileLine(texts[50][:10]+"x"+texts[50][10:], false)
+	file, needle := newLargeLineIndexFixture(t)
 
 	opts := Options{MaxEditDistance: 2}
 
@@ -1045,6 +1036,21 @@ func newFile(name string, text string) *File {
 		Name: name,
 		R:    strings.NewReader(text),
 	}
+}
+
+func newLargeLineIndexFixture(t testingTOrB) (*fileToCheck, *fileLine) {
+	t.Helper()
+
+	data, err := os.ReadFile("testdata/lipsum.txt")
+	if err != nil {
+		t.Fatal("read large line-index fixture:", err)
+	}
+
+	texts := strings.Split(string(data), "\n")
+	file := newFileToCheck(t, texts, make([]bool, len(texts)), false)
+	needle := newFileLine(texts[50][:10]+"x"+texts[50][10:], false)
+
+	return file, needle
 }
 
 func newFileToCheck(t testingTOrB, texts []string, done []bool, ignoreWS bool) *fileToCheck {

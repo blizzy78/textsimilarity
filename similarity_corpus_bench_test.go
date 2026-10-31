@@ -61,22 +61,6 @@ func BenchmarkSimilaritiesCorpus(b *testing.B) { //nolint:gocognit,cyclop // ext
 			b.Fatal(err)
 		}
 
-		done := make(chan struct{})
-
-		go func() {
-			for range progress {
-			}
-
-			close(done)
-		}()
-
-		count := 0
-		for range sims {
-			count++
-		}
-
-		<-done
-
-		similarityCount = count
+		similarityCount = countBenchmarkSimilarities(sims, progress)
 	}
 }

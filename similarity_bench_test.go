@@ -2,9 +2,6 @@ package textsimilarity
 
 import (
 	"context"
-	"io"
-	"os"
-	"strings"
 	"testing"
 )
 
@@ -36,15 +33,7 @@ func BenchmarkLineIndex(b *testing.B) {
 func BenchmarkLineIndex_Large(b *testing.B) {
 	b.StopTimer()
 
-	osFile, _ := os.Open("testdata/lipsum.txt")
-	defer osFile.Close() //nolint:errcheck // file is being read
-
-	data, _ := io.ReadAll(osFile)
-	texts := strings.Split(string(data), "\n")
-
-	file := newFileToCheck(b, texts, make([]bool, len(texts)), false)
-
-	needle := newFileLine(texts[50][:10]+"x"+texts[50][10:], false)
+	file, needle := newLargeLineIndexFixture(b)
 
 	opts := Options{MaxEditDistance: 2}
 

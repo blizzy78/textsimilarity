@@ -141,26 +141,31 @@ func BenchmarkSimilarities(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		done := make(chan struct{})
-
-		go func() {
-			for range progress {
-			}
-
-			close(done)
-		}()
-
-		count := 0
-		for range sims {
-			count++
-		}
-
-		<-done
-
+		count := countBenchmarkSimilarities(sims, progress)
 		if count == 0 {
 			b.Fatal("no similarities found")
 		}
 
 		similarityCount = count
 	}
+}
+
+func countBenchmarkSimilarities(sims <-chan *Similarity, progress <-chan Progress) int {
+	done := make(chan struct{})
+
+	go func() {
+		for range progress {
+		}
+
+		close(done)
+	}()
+
+	count := 0
+	for range sims {
+		count++
+	}
+
+	<-done
+
+	return count
 }

@@ -51,7 +51,7 @@ func TestExpandLineEdits(t *testing.T) { //nolint:gocognit // table checks endpo
 			opts := &Options{MaxLineDistance: test.budget}
 			occs := []*FileOccurrence{lineEditOccurrence(t, "alpha", test.source, opts), lineEditOccurrence(t, "beta", test.peer, opts)}
 
-			level := expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
+			level := expandOccurrences(t.Context(), occs, opts)
 			if ends := [2]int{occs[0].End, occs[1].End}; ends != test.ends || level != test.level {
 				t.Fatalf("got ends %v, level %v; want %v, %v", ends, level, test.ends, test.level)
 			}
@@ -76,7 +76,7 @@ func TestLineEditBudgetPerOccurrence(t *testing.T) {
 	first[1], second[2] = "xxxxxxxxxxxx", "yyyyyyyyyyyy"
 
 	occs := []*FileOccurrence{lineEditOccurrence(t, "alpha", source, opts), lineEditOccurrence(t, "beta", first, opts), lineEditOccurrence(t, "gamma", second, opts)}
-	if level := expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts); level != SimilarSimilarityLevel {
+	if level := expandOccurrences(t.Context(), occs, opts); level != SimilarSimilarityLevel {
 		t.Fatal("edited occurrences were not classified as similar")
 	}
 
@@ -95,14 +95,14 @@ func TestLineEditIgnoredLinesAndMarkers(t *testing.T) {
 		lineEditOccurrence(t, "alpha", []string{alpha, "", "ignored source", beta, gamma}, opts),
 		lineEditOccurrence(t, "beta", []string{alpha, "xxxxxxxxxxxx", beta, "ignored peer", "", gamma}, opts),
 	}
-	if level := expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts); level != SimilarSimilarityLevel || occs[0].End != 5 || occs[1].End != 6 {
+	if level := expandOccurrences(t.Context(), occs, opts); level != SimilarSimilarityLevel || occs[0].End != 5 || occs[1].End != 6 {
 		t.Fatal("ignored lines consumed the line-edit budget")
 	}
 
 	opts.Flags, opts.IgnoreLineRegex = 0, nil
 	occs = []*FileOccurrence{lineEditOccurrence(t, "alpha", []string{alpha, beta, gamma, gamma}, opts), lineEditOccurrence(t, "beta", []string{alpha, beta, gamma, gamma}, opts)}
 	occs[1].fileToCheck.setDone(2, true)
-	expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
+	expandOccurrences(t.Context(), occs, opts)
 
 	if occs[1].End != 2 || !occs[1].fileToCheck.isDone(2) || occs[1].fileToCheck.isDone(3) {
 		t.Fatal("alignment crossed alpha previously marked line")
@@ -115,7 +115,7 @@ func TestLineEditCancellation(t *testing.T) {
 	occs := []*FileOccurrence{lineEditOccurrence(t, "alpha", lines, opts), lineEditOccurrence(t, "beta", lines, opts)}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	expandOccurrences(ctx, occs, EqualSimilarityLevel, opts)
+	expandOccurrences(ctx, occs, opts)
 
 	if occs[0].End != 1 || occs[1].End != 1 || occs[0].fileToCheck.isDone(0) {
 		t.Fatal("canceled expansion changed endpoints or markers")
@@ -126,7 +126,7 @@ func TestLineEditsAlwaysDifferent(t *testing.T) {
 	opts := &Options{MaxLineDistance: 1, AlwaysDifferentLineRegex: regexp.MustCompile("^barrier")}
 	lines := []string{"seed seed seed", "barrier first", "matching matching", "barrier second", "tail tail tail"}
 	occs := []*FileOccurrence{lineEditOccurrence(t, "first", lines, opts), lineEditOccurrence(t, "second", lines, opts)}
-	expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
+	expandOccurrences(t.Context(), occs, opts)
 
 	if occs[0].End != 5 || occs[1].End != 5 {
 		t.Fatal("always-different lines did not consume the line-edit budget")
@@ -138,7 +138,7 @@ func TestLineEditIgnoredSeed(t *testing.T) {
 	peer := lineEditOccurrence(t, "peer", []string{"aaaaaaaaaaaa", "baaaaaaaaaaa"}, opts)
 	needle := textToFileLine("baaaaaaaaaaa", opts)
 
-	line, _ := lineIndex(t.Context(), peer.fileToCheck, needle, 0, opts)
+	line := lineIndex(t.Context(), peer.fileToCheck, needle, 0, opts)
 	if line != 1 {
 		t.Fatal("an ignored line was used as the matching seed")
 	}
@@ -150,7 +150,7 @@ func TestLineEditIgnoreBeforeAlwaysDifferent(t *testing.T) {
 		lineEditOccurrence(t, "first", []string{"seed seed seed", "barrier first", "aaaaaaaaaaaa", "barrier second", "bbbbbbbbbbbb"}, opts),
 		lineEditOccurrence(t, "second", []string{"seed seed seed", "aaaaaaaaaaaa", "xxxxxxxxxxxx"}, opts),
 	}
-	expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
+	expandOccurrences(t.Context(), occs, opts)
 
 	if occs[0].End != 5 || occs[1].End != 3 {
 		t.Fatal("ignored lines consumed edits before the replacement")
@@ -164,7 +164,7 @@ func TestLineEditLargeBudget(t *testing.T) {
 		lineEditOccurrence(t, "first", []string{"seed seed seed", "aaaaaaaaaaaa", "bbbbbbbbbbbb"}, opts),
 		lineEditOccurrence(t, "second", []string{"seed seed seed", "xxxxxxxxxxxx", "yyyyyyyyyyyy"}, opts),
 	}
-	if level := expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts); level != SimilarSimilarityLevel || occs[0].End != 3 || occs[1].End != 3 {
+	if level := expandOccurrences(t.Context(), occs, opts); level != SimilarSimilarityLevel || occs[0].End != 3 || occs[1].End != 3 {
 		t.Fatal("large budget was not bounded by the actual input lengths")
 	}
 }
@@ -177,7 +177,7 @@ func TestLineEditWideGroup(t *testing.T) {
 		occs = append(occs, lineEditOccurrence(t, fmt.Sprint(idx), []string{"seed seed seed"}, opts))
 	}
 
-	if level := expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts); level != SimilarSimilarityLevel || occs[0].End != 4 {
+	if level := expandOccurrences(t.Context(), occs, opts); level != SimilarSimilarityLevel || occs[0].End != 4 {
 		t.Fatal("wide group did not retain its valid common prefix")
 	}
 
@@ -208,7 +208,7 @@ func TestLineEditGroupHasValidReference(t *testing.T) {
 			occs[idx] = lineEditOccurrence(t, fmt.Sprint(idx), lines, opts)
 		}
 
-		expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
+		expandOccurrences(t.Context(), occs, opts)
 
 		for _, peer := range occs[1:] {
 			if !referenceLinePrefixValid(occs[0].File.lines[:occs[0].End], peer.File.lines[:peer.End], opts.MaxLineDistance) {
@@ -223,7 +223,7 @@ func TestLineEditSameFileCopies(t *testing.T) {
 	block := []string{"aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc", "dddddddddddd"}
 	first := lineEditOccurrence(t, "same", append(append([]string(nil), block...), block...), opts)
 	second := &FileOccurrence{File: first.File, Start: 4, End: 5, fileToCheck: &fileToCheck{f: first.File}}
-	expandOccurrences(t.Context(), []*FileOccurrence{first, second}, EqualSimilarityLevel, opts)
+	expandOccurrences(t.Context(), []*FileOccurrence{first, second}, opts)
 
 	if first.End != 4 || second.End != 8 {
 		t.Fatalf("neighboring copies overlapped: %delta, %delta", first.End, second.End)
@@ -247,7 +247,7 @@ func TestLineAlignmentRespectsEditRuns(t *testing.T) {
 		}
 
 		occs := []*FileOccurrence{lineEditOccurrence(t, "alpha", texts[0], opts), lineEditOccurrence(t, "beta", texts[1], opts)}
-		expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
+		expandOccurrences(t.Context(), occs, opts)
 
 		if !referenceLinePrefixValid(occs[0].File.lines[:occs[0].End], occs[1].File.lines[:occs[1].End], opts.MaxLineDistance) {
 			t.Fatalf("trial %d: output exceeds consecutive edit budget; inputs %q", trial, texts)
@@ -398,7 +398,7 @@ func TestLineEditResetsAllowAccumulatedOffsets(t *testing.T) {
 			opts := &Options{MaxLineDistance: 1}
 			occs := []*FileOccurrence{lineEditOccurrence(t, "source", short, opts), lineEditOccurrence(t, "peer", long, opts)}
 
-			level := expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
+			level := expandOccurrences(t.Context(), occs, opts)
 			if level != SimilarSimilarityLevel || occs[0].End != len(short) || occs[1].End != len(long) {
 				t.Fatal("a fixed diagonal band or total edit budget truncated repeated resets")
 			}
@@ -412,7 +412,7 @@ func TestIgnoredLinesDoNotResetEdits(t *testing.T) {
 		lineEditOccurrence(t, "source", []string{"seed", "first", "ignored", "second", "tail"}, opts),
 		lineEditOccurrence(t, "peer", []string{"seed", "First", "ignored", "Second", "tail"}, opts),
 	}
-	expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
+	expandOccurrences(t.Context(), occs, opts)
 
 	if occs[0].End != 1 || occs[1].End != 1 {
 		t.Fatal("an ignored line reset the counter between two one-character changes")
@@ -423,7 +423,7 @@ func TestAlwaysDifferentLinesDoNotResetEdits(t *testing.T) {
 	opts := &Options{MaxLineDistance: 1, AlwaysDifferentLineRegex: regexp.MustCompile("^forced$")}
 	lines := []string{"seed", "forced", "forced", "tail"}
 	occs := []*FileOccurrence{lineEditOccurrence(t, "source", lines, opts), lineEditOccurrence(t, "peer", lines, opts)}
-	expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
+	expandOccurrences(t.Context(), occs, opts)
 
 	if occs[0].End != 1 || occs[1].End != 1 {
 		t.Fatal("identical always-different lines reset the counter")
@@ -483,7 +483,7 @@ func TestAmbiguousScaffoldingDoesNotBridgeUnrelatedMethods(t *testing.T) {
 	opts := &Options{MaxLineDistance: 3}
 	occs := []*FileOccurrence{lineEditOccurrence(t, "source", source, opts), lineEditOccurrence(t, "peer", peer, opts)}
 
-	level := expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
+	level := expandOccurrences(t.Context(), occs, opts)
 	for _, occurrence := range occs {
 		if occurrence.End != wantEnd || level != SimilarSimilarityLevel {
 			t.Fatalf("ambiguous markers joined unrelated operations: end %d, want %d", occurrence.End, wantEnd)
@@ -501,7 +501,7 @@ func TestOversizedDeletionEndsBeforeTheGap(t *testing.T) {
 		lineEditOccurrence(t, "source", []string{"seed", "prefix", "removed one", "removed two", "removed three", "removed four", "tail"}, opts),
 		lineEditOccurrence(t, "peer", []string{"seed", "prefix", "tail"}, opts),
 	}
-	expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
+	expandOccurrences(t.Context(), occs, opts)
 
 	if occs[0].End != 2 || occs[1].End != 2 {
 		t.Fatal("reported part of an oversized deletion instead of stopping at its preceding anchor")

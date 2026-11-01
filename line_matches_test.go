@@ -151,7 +151,7 @@ func TestRepeatedTextStillSupportsExactCopiesAndSingleInsertions(t *testing.T) {
 			}
 
 			occs := []*FileOccurrence{lineEditOccurrence(t, "source", source, opts), lineEditOccurrence(t, "peer", peer, opts)}
-			expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
+			expandOccurrences(t.Context(), occs, opts)
 
 			if occs[0].End != len(source) || occs[1].End != len(peer) {
 				t.Fatal("repeated text lost a well-defined prefix/suffix alignment")

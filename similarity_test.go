@@ -266,7 +266,6 @@ func TestLineIndex(t *testing.T) {
 		givenNeedle    *fileLine
 		givenStartLine int
 		wantLine       int
-		wantLevel      SimilarityLevel
 	}{
 		{
 			description: "found (first)",
@@ -277,7 +276,6 @@ func TestLineIndex(t *testing.T) {
 			),
 			givenNeedle: newFileLine("aaaaaaaaaa", false),
 			wantLine:    0,
-			wantLevel:   EqualSimilarityLevel,
 		},
 		{
 			description: "found (middle)",
@@ -288,7 +286,6 @@ func TestLineIndex(t *testing.T) {
 			),
 			givenNeedle: newFileLine("bbbbbbbbbb", false),
 			wantLine:    1,
-			wantLevel:   EqualSimilarityLevel,
 		},
 		{
 			description: "found (last)",
@@ -299,7 +296,6 @@ func TestLineIndex(t *testing.T) {
 			),
 			givenNeedle: newFileLine("eeeeeeeeee", false),
 			wantLine:    4,
-			wantLevel:   EqualSimilarityLevel,
 		},
 		{
 			description: "not found",
@@ -321,7 +317,6 @@ func TestLineIndex(t *testing.T) {
 			givenNeedle:    newFileLine("aaaaaaaaaa", false),
 			givenStartLine: 1,
 			wantLine:       2,
-			wantLevel:      EqualSimilarityLevel,
 		},
 		{
 			description: "not found (startLine > 0)",
@@ -343,7 +338,6 @@ func TestLineIndex(t *testing.T) {
 			),
 			givenNeedle: newFileLine("aaaaaaaaaa", false),
 			wantLine:    2,
-			wantLevel:   EqualSimilarityLevel,
 		},
 		{
 			description: "not found (linesDone)",
@@ -364,7 +358,6 @@ func TestLineIndex(t *testing.T) {
 			),
 			givenNeedle: newFileLine("aaaaaaaaaa", false),
 			wantLine:    -1,
-			wantLevel:   differentSimilarityLevel,
 		},
 	}
 
@@ -372,7 +365,7 @@ func TestLineIndex(t *testing.T) {
 		t.Run(fmt.Sprintf("[%d] %s", i, test.description), func(t *testing.T) {
 			is := is.New(t)
 
-			line, level := lineIndex(context.Background(), test.givenFile, test.givenNeedle, test.givenStartLine, &Options{})
+			line := lineIndex(context.Background(), test.givenFile, test.givenNeedle, test.givenStartLine, &Options{})
 
 			if test.wantLine < 0 {
 				is.True(line < 0)
@@ -380,7 +373,6 @@ func TestLineIndex(t *testing.T) {
 			}
 
 			is.Equal(line, test.wantLine)
-			is.Equal(level, test.wantLevel)
 		})
 	}
 }
@@ -392,10 +384,9 @@ func TestLineIndex_Large(t *testing.T) {
 
 	opts := Options{}
 
-	line, level := lineIndex(context.Background(), file, needle, 0, &opts)
+	line := lineIndex(context.Background(), file, needle, 0, &opts)
 
 	is.Equal(line, 50)
-	is.Equal(level, EqualSimilarityLevel)
 }
 
 func TestExpandOccurrences(t *testing.T) {
@@ -624,7 +615,7 @@ func TestExpandOccurrences(t *testing.T) {
 		t.Run(fmt.Sprintf("[%d] %s", i, test.description), func(t *testing.T) {
 			is := is.New(t)
 
-			level := expandOccurrences(context.Background(), test.givenOccurrences, EqualSimilarityLevel, &Options{Flags: test.givenFlags, MaxLineDistance: test.maxLineDistance})
+			level := expandOccurrences(context.Background(), test.givenOccurrences, &Options{Flags: test.givenFlags, MaxLineDistance: test.maxLineDistance})
 
 			for i, o := range test.givenOccurrences {
 				is.Equal(o.End, test.wantEnds[i])
@@ -642,21 +633,18 @@ func TestLineOccurrences(t *testing.T) {
 		givenLine       *fileLine
 		givenStartLine  int
 		wantOccurrences []*FileOccurrence
-		wantLevel       SimilarityLevel
 	}{
 		{
 			description:     "single",
 			givenFile:       newFileToCheck(t, []string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"}, []bool{false, false, false, false, false}, false),
 			givenLine:       newFileLine("aaaaaaaaaa", false),
 			wantOccurrences: []*FileOccurrence{{Start: 0, End: 1}},
-			wantLevel:       EqualSimilarityLevel,
 		},
 		{
 			description:     "multiple",
 			givenFile:       newFileToCheck(t, []string{"aaaaaaaaaa", "bbbbbbbbbb", "aaaaaaaaaa", "aaaaaaaaaa", "eeeeeeeeee"}, []bool{false, false, false, false, false}, false),
 			givenLine:       newFileLine("aaaaaaaaaa", false),
 			wantOccurrences: []*FileOccurrence{{Start: 0, End: 1}, {Start: 2, End: 3}, {Start: 3, End: 4}},
-			wantLevel:       EqualSimilarityLevel,
 		},
 		{
 			description:     "startLine > 0",
@@ -664,14 +652,12 @@ func TestLineOccurrences(t *testing.T) {
 			givenLine:       newFileLine("aaaaaaaaaa", false),
 			givenStartLine:  1,
 			wantOccurrences: []*FileOccurrence{{Start: 2, End: 3}},
-			wantLevel:       EqualSimilarityLevel,
 		},
 		{
 			description:     "changed lines are not seeds",
 			givenFile:       newFileToCheck(t, []string{"aaaaaxaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"}, []bool{false, false, false, false, false}, false),
 			givenLine:       newFileLine("aaaaaaaaaa", false),
 			wantOccurrences: nil,
-			wantLevel:       EqualSimilarityLevel,
 		},
 	}
 
@@ -679,7 +665,7 @@ func TestLineOccurrences(t *testing.T) {
 		t.Run(fmt.Sprintf("[%d] %s", i, test.description), func(t *testing.T) {
 			is := is.New(t)
 
-			occs, level := lineOccurrences(context.Background(), test.givenFile, test.givenLine, test.givenStartLine, &Options{})
+			occs := lineOccurrences(context.Background(), test.givenFile, test.givenLine, test.givenStartLine, &Options{})
 
 			is.Equal(len(occs), len(test.wantOccurrences))
 
@@ -688,8 +674,6 @@ func TestLineOccurrences(t *testing.T) {
 				is.Equal(occ.Start, test.wantOccurrences[i].Start)
 				is.Equal(occ.End, test.wantOccurrences[i].End)
 			}
-
-			is.Equal(level, test.wantLevel)
 		})
 	}
 }

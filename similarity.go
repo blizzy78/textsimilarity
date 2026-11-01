@@ -29,10 +29,10 @@ const (
 	// differentSimilarityLevel is the similarity level used for lines that are completely different.
 	differentSimilarityLevel = SimilarityLevel(iota) // not exported
 
-	// SimilarSimilarityLevel is the similarity level used for lines or occurrences that are similar, but not completely equal.
+	// SimilarSimilarityLevel identifies occurrences that contain line edits.
 	SimilarSimilarityLevel
 
-	// EqualSimilarityLevel is the similarity level used for lines or occurrences that are completely equal.
+	// EqualSimilarityLevel identifies lines or occurrences equal under the configured ignore rules.
 	EqualSimilarityLevel
 )
 
@@ -305,7 +305,6 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 		}
 
 		occurrences := []*FileOccurrence{}
-		level := EqualSimilarityLevel
 		tooShort := false
 
 		peerCount := len(file.peers)
@@ -343,7 +342,7 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 			}
 
 			if opts.MinSimilarLines > 1 {
-				first, _ := lineIndex(ctx, peerFile, line, startLine, opts)
+				first := lineIndex(ctx, peerFile, line, startLine, opts)
 				if first < 0 {
 					continue
 				}
@@ -356,16 +355,12 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 				startLine = first
 			}
 
-			peerFileOccurrences, peerFileLevel := lineOccurrences(ctx, peerFile, line, startLine, opts)
+			peerFileOccurrences := lineOccurrences(ctx, peerFile, line, startLine, opts)
 			if len(peerFileOccurrences) == 0 {
 				continue
 			}
 
 			occurrences = append(occurrences, peerFileOccurrences...)
-
-			if peerFileLevel < level {
-				level = peerFileLevel
-			}
 		}
 
 		if tooShort || len(occurrences) == 0 {
@@ -382,7 +377,7 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 			},
 		}, occurrences...)
 
-		level = expandOccurrences(ctx, occurrences, level, opts)
+		level := expandOccurrences(ctx, occurrences, opts)
 
 		// Reject groups with too few accepted lines in any occurrence. Ignored
 		// lines inside a large physical span must not inflate the minimum.
@@ -521,19 +516,17 @@ func markOccurrencesLinesDone(occs []*FileOccurrence) {
 }
 
 // lineOccurrences returns all occurrences of line in file, beginning with startLine, according to opts.
-// It also returns the similarity level of those occurrences.
-func lineOccurrences(ctx context.Context, file *fileToCheck, line *fileLine, startLine int, opts *Options) ([]*FileOccurrence, SimilarityLevel) {
+func lineOccurrences(ctx context.Context, file *fileToCheck, line *fileLine, startLine int, opts *Options) []*FileOccurrence {
 	occurrences := []*FileOccurrence{}
-	level := EqualSimilarityLevel
 
 	for {
 		if contextDone(ctx) {
-			return occurrences, level
+			return occurrences
 		}
 
-		fileLineIdx, fileLevel := lineIndex(ctx, file, line, startLine, opts)
+		fileLineIdx := lineIndex(ctx, file, line, startLine, opts)
 		if fileLineIdx < 0 {
-			return occurrences, level
+			return occurrences
 		}
 
 		occurrences = append(occurrences, &FileOccurrence{
@@ -544,21 +537,16 @@ func lineOccurrences(ctx context.Context, file *fileToCheck, line *fileLine, sta
 			fileToCheck: file,
 		})
 
-		if fileLevel < level {
-			level = fileLevel
-		}
-
 		startLine = fileLineIdx + 1
 	}
 }
 
 // expandOccurrences expands occurrences in occs, that is, it will try to capture as much text as possible
 // in each occurrence's file, according to opts. Each occurrence's End will be modified accordingly.
-// The returned similarity level covering the modified occurrences may be lower than level (with respect to opts),
-// but will never be similarityLevelDifferent.
-func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level SimilarityLevel, opts *Options) SimilarityLevel { //nolint:gocognit,cyclop // it's complicated
+// The result is similar when expansion includes edits, otherwise equal.
+func expandOccurrences(ctx context.Context, occs []*FileOccurrence, opts *Options) SimilarityLevel { //nolint:gocognit,cyclop // it's complicated
 	if opts.MaxLineDistance > 0 {
-		return expandLineOccurrences(ctx, occs, level, opts)
+		return expandLineOccurrences(ctx, occs, opts)
 	}
 
 	ends := intSlicePool.Get().([]int) //nolint:forcetypeassert // we know what's in the pool
@@ -581,13 +569,13 @@ func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level Simila
 
 	for {
 		if contextDone(ctx) {
-			return level
+			return EqualSimilarityLevel
 		}
 
 		for idx, occ := range occs {
 			next := nextAcceptedLine(ctx, occ.fileToCheck, ends[idx], opts)
 			if next < 0 {
-				return level
+				return EqualSimilarityLevel
 			}
 
 			ends[idx] = next + 1
@@ -598,7 +586,7 @@ func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level Simila
 
 		for idx2, occ2 := range occs {
 			if contextDone(ctx) {
-				return level
+				return EqualSimilarityLevel
 			}
 
 			if idx2 == 0 {
@@ -609,11 +597,7 @@ func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level Simila
 
 			lineLevel := linesSimilarity(line1, line2)
 			if lineLevel == differentSimilarityLevel {
-				return level
-			}
-
-			if lineLevel < level {
-				level = lineLevel
+				return EqualSimilarityLevel
 			}
 		}
 
@@ -692,9 +676,9 @@ func acceptLine(line *fileLine, opts *Options) bool {
 	return true
 }
 
-// lineIndex returns the line index and similarity level of needle in file, starting with startLine,
+// lineIndex returns the index of an exact seed match at or after startLine,
 // according to opts. If no match can be found, -1 is returned for the line index.
-func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLine int, opts *Options) (int, SimilarityLevel) {
+func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLine int, opts *Options) int {
 	if file.search != nil {
 		return file.search.find(ctx, file, needle, startLine, opts)
 	}
@@ -702,16 +686,16 @@ func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLi
 	return linearLineIndex(ctx, file, needle, startLine, opts)
 }
 
-func linearLineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLine int, opts *Options) (int, SimilarityLevel) {
+func linearLineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLine int, opts *Options) int {
 	endLine := len(file.f.lines)
 
 	for lineIdx := startLine; ; lineIdx++ {
 		if contextDone(ctx) {
-			return -1, differentSimilarityLevel
+			return -1
 		}
 
 		if lineIdx >= endLine {
-			return -1, differentSimilarityLevel
+			return -1
 		}
 
 		if file.isDone(lineIdx) {
@@ -727,11 +711,11 @@ func linearLineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, s
 			continue
 		}
 
-		return lineIdx, level
+		return lineIdx
 	}
 }
 
-// linesSimilarity returns the similarity level between fileLine1 and fileLine2, according to opts.
+// linesSimilarity reports exact equality unless either line is forced different.
 func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine) SimilarityLevel {
 	if (fileLine1.flags|fileLine2.flags)&matchesAlwaysDifferentLineFlag != 0 {
 		return differentSimilarityLevel

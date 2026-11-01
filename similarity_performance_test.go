@@ -35,7 +35,7 @@ func TestExpandOccurrencesMarksCommittedLines(t *testing.T) {
 	}
 	opts := &Options{Flags: IgnoreBlankLinesFlag}
 
-	level := expandOccurrences(context.Background(), occurrences, EqualSimilarityLevel, opts)
+	level := expandOccurrences(context.Background(), occurrences, opts)
 	if level != EqualSimilarityLevel {
 		t.Fatalf("level = %d, want equal", level)
 	}

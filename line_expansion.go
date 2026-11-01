@@ -12,7 +12,6 @@ type lineAlignment struct {
 	peerIndex   int
 	maximum     int
 	budget      int
-	run         int
 	edited      bool
 	end         int
 	level       SimilarityLevel
@@ -24,14 +23,7 @@ func (alignment *lineAlignment) take(ctx context.Context, source bool, peer bool
 	}
 
 	equal := source && peer && linesSimilarity(alignment.source.at(alignment.sourceIndex), alignment.peer.at(alignment.peerIndex)) == EqualSimilarityLevel
-	if equal {
-		alignment.run = 0
-	} else {
-		if alignment.run >= alignment.budget {
-			return false
-		}
-
-		alignment.run++
+	if !equal {
 		alignment.edited = true
 	}
 
@@ -179,27 +171,27 @@ func (file *fileToCheck) matchIndex() *fileMatchIndex {
 // Align one peer at a time. If a later peer shortens the common prefix,
 // revisit earlier peers at that prefix. Keep only endpoints and levels for the
 // group, not a separate alignment for every occurrence.
-func expandLineOccurrences(ctx context.Context, occs []*FileOccurrence, level SimilarityLevel, opts *Options) SimilarityLevel {
+func expandLineOccurrences(ctx context.Context, occs []*FileOccurrence, opts *Options) SimilarityLevel {
 	if len(occs) < 2 {
-		return level
+		return EqualSimilarityLevel
 	}
 
 	source := occs[0]
 
 	positions := sourceExpansionLines(ctx, occs, opts)
 	if len(positions) == 0 || contextDone(ctx) {
-		return level
+		return EqualSimilarityLevel
 	}
 
 	ends := make([]int, len(occs))
 	levels := make([]SimilarityLevel, len(occs))
-	levels[0] = level
+	levels[0] = EqualSimilarityLevel
 
 	limit, revisit := len(positions), 0
 	for idx, peer := range occs[1:] {
 		rows, end, peerLevel := alignPeerPrefix(ctx, source.fileToCheck, peer, positions, limit, opts)
 		if rows == 0 {
-			return level
+			return EqualSimilarityLevel
 		}
 
 		ends[idx+1], levels[idx+1] = end, peerLevel
@@ -211,7 +203,7 @@ func expandLineOccurrences(ctx context.Context, occs []*FileOccurrence, level Si
 	for idx := 0; idx < revisit; idx++ {
 		_, end, peerLevel := alignPeerPrefix(ctx, source.fileToCheck, occs[idx+1], positions, limit, opts)
 		if contextDone(ctx) {
-			return level
+			return EqualSimilarityLevel
 		}
 
 		ends[idx+1], levels[idx+1] = end, peerLevel
@@ -219,10 +211,11 @@ func expandLineOccurrences(ctx context.Context, occs []*FileOccurrence, level Si
 
 	ends[0] = positions[limit-1] + 1
 
-	return commitLineOccurrences(ctx, occs, ends, levels, level)
+	return commitLineOccurrences(ctx, occs, ends, levels)
 }
 
-func commitLineOccurrences(ctx context.Context, occs []*FileOccurrence, ends []int, levels []SimilarityLevel, level SimilarityLevel) SimilarityLevel {
+func commitLineOccurrences(ctx context.Context, occs []*FileOccurrence, ends []int, levels []SimilarityLevel) SimilarityLevel {
+	level := EqualSimilarityLevel
 	if contextDone(ctx) {
 		return level
 	}

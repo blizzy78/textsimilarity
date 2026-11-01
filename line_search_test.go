@@ -45,18 +45,18 @@ func TestLineSearchMatchesLinearSearch(t *testing.T) { //nolint:gocognit,cyclop 
 			for range 40 {
 				needle := files[random.IntN(len(files))].lines[random.IntN(30)]
 				start := random.IntN(31)
-				got, level := lineIndex(t.Context(), indexed, needle, start, opts)
+				got := lineIndex(t.Context(), indexed, needle, start, opts)
 
-				want, wantLevel := lineIndex(t.Context(), linear, needle, start, opts)
-				if got != want || level != wantLevel {
-					t.Fatalf("trial %d: got %d/%d, want %d/%d", trial, got, level, want, wantLevel)
+				want := lineIndex(t.Context(), linear, needle, start, opts)
+				if got != want {
+					t.Fatalf("trial %d: got %d, want %d", trial, got, want)
 				}
 			}
 
 			ctx, cancel := context.WithCancel(t.Context())
 			cancel()
 
-			if got, _ := lineIndex(ctx, indexed, file.lines[0], 0, opts); got != -1 {
+			if got := lineIndex(ctx, indexed, file.lines[0], 0, opts); got != -1 {
 				t.Fatal("canceled lookup returned an occurrence")
 			}
 		}
@@ -79,8 +79,8 @@ func TestLineSearchBroadExactMatch(t *testing.T) {
 	}
 
 	for range 100 {
-		got, level := lineIndex(t.Context(), indexed, textToFileLine("exact", opts), 0, opts)
-		if got != 4999 || level != EqualSimilarityLevel {
+		got := lineIndex(t.Context(), indexed, textToFileLine("exact", opts), 0, opts)
+		if got != 4999 {
 			t.Fatal("broad lookup lost matches beyond the old query-cache limit")
 		}
 	}

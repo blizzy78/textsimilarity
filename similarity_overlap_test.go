@@ -114,7 +114,7 @@ func TestMinimumProbeNecessary(t *testing.T) { //nolint:gocognit,cyclop // compa
 			{Start: 0, End: 1, fileToCheck: left},
 			{Start: 0, End: 1, fileToCheck: right},
 		}
-		expandOccurrences(t.Context(), occurrences, EqualSimilarityLevel, opts)
+		expandOccurrences(t.Context(), occurrences, opts)
 
 		if occurrenceLongEnough(t.Context(), occurrences[0], opts) && occurrenceLongEnough(t.Context(), occurrences[1], opts) && !possible {
 			t.Fatalf("probe rejected an expansion reaching line %d with minimum %d", occurrences[0].End, opts.MinSimilarLines)

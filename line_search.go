@@ -109,9 +109,9 @@ func (search *lineSearch) query(needle *fileLine) *lineQuery {
 	return &lineQuery{}
 }
 
-func (search *lineSearch) find(ctx context.Context, file *fileToCheck, needle *fileLine, start int, opts *Options) (int, SimilarityLevel) {
+func (search *lineSearch) find(ctx context.Context, file *fileToCheck, needle *fileLine, start int, opts *Options) int {
 	if !acceptLine(needle, opts) || needle.flagSet(matchesAlwaysDifferentLineFlag) {
-		return -1, differentSimilarityLevel
+		return -1
 	}
 
 	hits := search.query(needle).hits
@@ -125,9 +125,9 @@ func (search *lineSearch) find(ctx context.Context, file *fileToCheck, needle *f
 		}
 
 		if !file.isDone(hit.line) {
-			return hit.line, EqualSimilarityLevel
+			return hit.line
 		}
 	}
 
-	return -1, differentSimilarityLevel
+	return -1
 }

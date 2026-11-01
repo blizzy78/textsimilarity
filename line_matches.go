@@ -148,7 +148,7 @@ func (lines alignmentLines) withIndex(ctx context.Context) alignmentLines {
 		return lines
 	}
 
-	index := &fileMatchIndex{lines: map[string][]int{}, positions: lines.positions}
+	index := &fileMatchIndex{lines: map[string][]int{}}
 	for _, position := range lines.positions {
 		if contextDone(ctx) {
 			break

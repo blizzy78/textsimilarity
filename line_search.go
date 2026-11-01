@@ -5,10 +5,11 @@ import (
 	"sort"
 )
 
-// Each accepted input position is indexed exactly once. Unlike fuzzy queries,
-// exact lookups share the immutable postings directly, without cached copies.
+// Exact lookups share immutable postings. Per-file anchor data is linear in
+// input size and reused across alignments, rather than rebuilt for every pair.
 type lineSearch struct {
 	lines map[string]*lineQuery
+	files []*fileMatchIndex
 }
 
 type lineQuery struct {
@@ -24,23 +25,49 @@ type lineHit struct {
 
 func newLineSearch(files []*File, opts *Options) *lineSearch {
 	search := &lineSearch{lines: map[string]*lineQuery{}}
+	if opts.MaxLineDistance > 0 {
+		search.files = make([]*fileMatchIndex, len(files))
+	}
+
 	for fileID, file := range files {
-		for lineID, line := range file.lines {
-			if !acceptLine(line, opts) || line.flagSet(matchesAlwaysDifferentLineFlag) {
-				continue
-			}
-
-			query := search.lines[line.text]
-			if query == nil {
-				query = &lineQuery{}
-				search.lines[line.text] = query
-			}
-
-			query.add(lineHit{file: fileID, line: lineID}, len(file.lines)-lineID < opts.MinSimilarLines)
-		}
+		search.indexFile(fileID, file, opts)
 	}
 
 	return search
+}
+
+func (search *lineSearch) indexFile(fileID int, file *File, opts *Options) {
+	var index *fileMatchIndex
+	if search.files != nil {
+		index = &fileMatchIndex{lines: map[string][]int{}}
+		search.files[fileID] = index
+	}
+
+	for lineID, line := range file.lines {
+		if !acceptLine(line, opts) {
+			continue
+		}
+
+		if index != nil {
+			index.positions = append(index.positions, lineID)
+		}
+
+		if line.flagSet(matchesAlwaysDifferentLineFlag) {
+			continue
+		}
+
+		if index != nil {
+			index.lines[line.text] = append(index.lines[line.text], lineID)
+		}
+
+		query := search.lines[line.text]
+		if query == nil {
+			query = &lineQuery{}
+			search.lines[line.text] = query
+		}
+
+		query.add(lineHit{file: fileID, line: lineID}, len(file.lines)-lineID < opts.MinSimilarLines)
+	}
 }
 
 func (query *lineQuery) add(hit lineHit, short bool) {

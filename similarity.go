@@ -58,14 +58,16 @@ type Options struct {
 	// MinLineLength is the minimum length of a line to be considered (in runes.) Lines shorter than that will be ignored.
 	MinLineLength int
 
-	// MinSimilarLines is the minimum line span of every occurrence in a reported
-	// similarity group. Groups containing a shorter occurrence will not be reported.
+	// MinSimilarLines is the minimum number of non-ignored lines in every occurrence
+	// of a reported group. Ignored lines do not contribute to this minimum.
 	MinSimilarLines int
 
 	// MaxLineDistance limits consecutive line insertions, deletions, and replacements
 	// relative to the source occurrence. Every unequal line costs one edit. An exact
 	// match resets the counter; ignored lines neither cost an edit nor reset it.
 	// Each peer has its own counter. Nonpositive values require exact matches.
+	// Positive limits bridge edit gaps between unambiguous exact-line anchors;
+	// an oversized ambiguous gap ends expansion before that gap.
 	MaxLineDistance int
 
 	// IgnoreLineRegex, if set, is an expression that a line must match to be ignored. Note that leading/trailing
@@ -93,7 +95,9 @@ type File struct {
 
 // A Similarity is a match of ranges of text between different Files.
 type Similarity struct {
-	// Occurrences is a set of text ranges in files.
+	// Occurrences is a set of text ranges in files. The first is the reference used
+	// to validate every other occurrence. The remaining occurrences are sorted by
+	// file name, start and end. Other peer pairs need not satisfy the edit limit.
 	Occurrences []*FileOccurrence
 
 	// Level is the level of similarity between Occurrences.
@@ -261,7 +265,7 @@ func similaritiesLoaded(ctx context.Context, files []*File, opts *Options) (<-ch
 		distinctSims := newSimilaritySet(files)
 
 		for sim := range simsCh {
-			sortOccurrences(sim.Occurrences)
+			sortOccurrences(sim.Occurrences[1:])
 
 			if !distinctSims.add(sim) {
 				continue
@@ -380,10 +384,10 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 
 		level = expandOccurrences(ctx, occurrences, level, opts)
 
-		// The first occurrence is always retained by overlap filtering. Reject
-		// short matches before building that filter, resetting every touched range.
+		// Reject groups with too few accepted lines in any occurrence. Ignored
+		// lines inside a large physical span must not inflate the minimum.
 		for _, occ := range occurrences {
-			tooShort = tooShort || occ.End-occ.Start < opts.MinSimilarLines
+			tooShort = tooShort || !occurrenceLongEnough(ctx, occ, opts)
 		}
 
 		if tooShort {
@@ -440,11 +444,14 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 // eventual expansion by marking additional lines done, not extend it.
 func canReachMinimum(ctx context.Context, source *fileToCheck, sourceStart int, peer *fileToCheck, peerStart int, opts *Options) bool {
 	if opts.MaxLineDistance > 0 {
-		return canAlignMinimum(ctx, source, sourceStart, peer, peerStart, opts)
+		// Canonical anchors depend on complete tails. This probe allows every
+		// possible alignment, so its negative result is safe for anchored ones.
+		return hasMinimumAccepted(ctx, source, sourceStart, opts) && hasMinimumAccepted(ctx, peer, peerStart, opts) && canReachLinePrefix(ctx, source, sourceStart, peer, peerStart, opts)
 	}
 
 	sourceEnd, peerEnd := sourceStart+1, peerStart+1
-	for sourceEnd-sourceStart < opts.MinSimilarLines {
+
+	for matched := 1; matched < opts.MinSimilarLines; matched++ {
 		if contextDone(ctx) {
 			return false
 		}
@@ -460,6 +467,34 @@ func canReachMinimum(ctx context.Context, source *fileToCheck, sourceStart int, 
 	}
 
 	return true
+}
+
+func hasMinimumAccepted(ctx context.Context, file *fileToCheck, start int, opts *Options) bool {
+	for count := 0; count < opts.MinSimilarLines; count++ {
+		line := nextAcceptedLine(ctx, file, start, opts)
+		if line < 0 {
+			return false
+		}
+
+		start = line + 1
+	}
+
+	return !contextDone(ctx)
+}
+
+func occurrenceLongEnough(ctx context.Context, occurrence *FileOccurrence, opts *Options) bool {
+	count := 0
+	for line := occurrence.Start; line < occurrence.End && count < opts.MinSimilarLines; line++ {
+		if contextDone(ctx) {
+			return false
+		}
+
+		if acceptLine(occurrence.fileToCheck.f.lines[line], opts) {
+			count++
+		}
+	}
+
+	return count >= opts.MinSimilarLines
 }
 
 func nextAcceptedLine(ctx context.Context, file *fileToCheck, start int, opts *Options) int {

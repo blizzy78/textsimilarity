@@ -108,8 +108,8 @@ func options() (cmdOptions, error) {
 	flag.BoolVar(&ignoreWhitespace, "ignoreWS", ignoreWhitespace, "ignore whitespace")
 	flag.BoolVar(&ignoreBlankLines, "ignoreBlank", ignoreBlankLines, "ignore blank lines")
 	flag.IntVar(&minLineLength, "minLen", minLineLength, "minimum line length")
-	flag.IntVar(&minSimilarLines, "minLines", minSimilarLines, "minimum similar lines")
-	flag.IntVar(&maxLineDistance, "maxLineDist", maxLineDistance, "maximum consecutive line edits, reset by exact matches (0 for exact expansion)")
+	flag.IntVar(&minSimilarLines, "minLines", minSimilarLines, "minimum non-ignored lines per occurrence")
+	flag.IntVar(&maxLineDistance, "maxLineDist", maxLineDistance, "maximum consecutive line edits between exact-line anchors (0 for exact expansion)")
 	flag.StringVar(&ignoreLineRegex, "ignoreRE", ignoreLineRegex, "ignore lines matching regex")
 	flag.StringVar(&alwaysDifferentLineRegex, "alwaysDiffRE", alwaysDifferentLineRegex, "always consider lines matching regex as different")
 

@@ -31,6 +31,8 @@ func TestSimilarities(t *testing.T) {
 		sims = readSimilaritiesChan(simsCh)
 	}, drainProgressChan(progressCh))
 
+	sims = sortedOccurrenceCopies(sims)
+
 	is.Equal(len(sims), 2)
 
 	is.Equal(len(sims[0].Occurrences), 2)
@@ -72,6 +74,8 @@ func TestSimilarities_IgnoreWhitespace(t *testing.T) {
 		sims = readSimilaritiesChan(simsCh)
 	}, drainProgressChan(progressCh))
 
+	sims = sortedOccurrenceCopies(sims)
+
 	is.Equal(len(sims), 1)
 
 	is.Equal(len(sims[0].Occurrences), 2)
@@ -100,6 +104,8 @@ func TestSimilarities_IgnoreBlankLines(t *testing.T) {
 	waitForAll(func() {
 		sims = readSimilaritiesChan(simsCh)
 	}, drainProgressChan(progressCh))
+
+	sims = sortedOccurrenceCopies(sims)
 
 	is.Equal(len(sims), 1)
 
@@ -130,6 +136,8 @@ func TestSimilarities_IgnoreRegex(t *testing.T) {
 		sims = readSimilaritiesChan(simsCh)
 	}, drainProgressChan(progressCh))
 
+	sims = sortedOccurrenceCopies(sims)
+
 	is.Equal(len(sims), 1)
 
 	is.Equal(len(sims[0].Occurrences), 2)
@@ -158,6 +166,8 @@ func TestSimilarities_AlwaysDifferentRegex(t *testing.T) {
 	waitForAll(func() {
 		sims = readSimilaritiesChan(simsCh)
 	}, drainProgressChan(progressCh))
+
+	sims = sortedOccurrenceCopies(sims)
 
 	is.Equal(len(sims), 2)
 
@@ -195,6 +205,8 @@ func TestSimilarities_MinLineLength(t *testing.T) {
 	waitForAll(func() {
 		sims = readSimilaritiesChan(simsCh)
 	}, drainProgressChan(progressCh))
+
+	sims = sortedOccurrenceCopies(sims)
 
 	is.Equal(len(sims), 1)
 
@@ -1073,6 +1085,20 @@ func newFileLine(text string, ignoreWS bool) *fileLine {
 	}
 
 	return textToFileLine(text, opts)
+}
+
+// Compare occurrence sets in the option tests without assuming which valid
+// reference won concurrent deduplication.
+func sortedOccurrenceCopies(sims []*Similarity) []*Similarity {
+	result := make([]*Similarity, len(sims))
+	for index, sim := range sims {
+		clone := *sim
+		clone.Occurrences = append([]*FileOccurrence(nil), sim.Occurrences...)
+		sortOccurrences(clone.Occurrences)
+		result[index] = &clone
+	}
+
+	return result
 }
 
 func readSimilaritiesChan(ch <-chan *Similarity) []*Similarity {

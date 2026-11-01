@@ -85,3 +85,20 @@ func TestLineSearchBroadExactMatch(t *testing.T) {
 		}
 	}
 }
+
+func TestIndexedAcceptedLinesRespectIgnoredMarkers(t *testing.T) {
+	opts := &Options{MaxLineDistance: 3, Flags: IgnoreBlankLinesFlag}
+
+	file := newFile("input", "seed\n\nlater accepted line")
+	if err := file.load(opts); err != nil {
+		t.Fatal(err)
+	}
+
+	search := newLineSearch([]*File{file}, opts)
+	indexed := &fileToCheck{f: file, search: search}
+	indexed.setDone(1, true)
+
+	if positions := acceptedLinePositions(t.Context(), indexed, 1, opts); len(positions) != 0 {
+		t.Fatal("shared accepted-line index crossed a marker on an ignored line")
+	}
+}

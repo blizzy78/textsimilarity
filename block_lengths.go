@@ -1,6 +1,6 @@
 package textsimilarity
 
-func scalarLengthsMatch(left []int32, right []int32, limit int32) bool {
+func blockLengthsMatch(left []int32, right []int32, limit int32) bool {
 	for idx, value := range left {
 		difference := value - right[idx]
 		if difference < -limit || difference > limit {

@@ -709,9 +709,7 @@ func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine) SimilarityLevel {
 	return differentSimilarityLevel
 }
 
-// load loads all lines from f, and sets up f accordingly, such as setting flags.
-func (f *File) load(opts *Options) error { return f.loadBuffered(opts, make([]byte, 32*1024)) }
-
+// loadBuffered loads all lines from f and prepares their headers and flags.
 func (f *File) loadBuffered(opts *Options, buffer []byte) error {
 	f.lines = nil
 
@@ -771,12 +769,6 @@ func (r *progressReader) Read(data []byte) (int, error) {
 	return read, err //nolint:wrapcheck // preserve the underlying io.Reader error
 }
 
-func textToFileLine(text string, opts *Options) *fileLine {
-	line := &fileLine{}
-	line.fillHeader(text, opts)
-
-	return line
-}
 func (line *fileLine) fillHeader(text string, opts *Options) {
 	if opts.flagSet(IgnoreWhitespaceFlag) {
 		text = strings.TrimSpace(text)
@@ -928,14 +920,6 @@ func (f *fileToCheck) peerAt(index int) *fileToCheck {
 		}
 
 		return peer
-	}
-
-	if f.peers == nil {
-		f.peers = make([]*fileToCheck, len(f.inputs))
-	}
-
-	if f.peers[index] == nil {
-		f.peers[index] = &fileToCheck{f: f.inputs[index], search: f.search, fileID: index}
 	}
 
 	return f.peers[index]

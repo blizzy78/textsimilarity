@@ -91,7 +91,6 @@ linters:
       - third_party$
       - builtin$
       - examples$
-      - levenshtein/levenshtein.go
 formatters:
   enable:
     - gofmt

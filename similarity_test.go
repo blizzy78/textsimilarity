@@ -1057,6 +1057,15 @@ func newFileLinesSlice(t testingTOrB, texts []string, ignoreWS bool) []*fileLine
 	return lines
 }
 
+func (f *File) load(opts *Options) error { return f.loadBuffered(opts, make([]byte, 32*1024)) }
+
+func textToFileLine(text string, opts *Options) *fileLine {
+	line := &fileLine{}
+	line.fillHeader(text, opts)
+
+	return line
+}
+
 func newFileLine(text string, ignoreWS bool) *fileLine {
 	opts := &Options{}
 	if ignoreWS {

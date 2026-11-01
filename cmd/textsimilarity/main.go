@@ -34,6 +34,9 @@ const (
 
 // cmdOptions holds command line options.
 type cmdOptions struct {
+	// fileList is the path to a file containing input paths, or "-" for stdin.
+	fileList string
+
 	// showProgress indicates whether progress should be written to stderr.
 	showProgress bool
 
@@ -82,6 +85,7 @@ func main() {
 
 // options parses and returns the command line options.
 func options() (cmdOptions, error) {
+	fileList := ""
 	showProgress := false
 	printEqual := false
 	diffTool := ""
@@ -95,6 +99,7 @@ func options() (cmdOptions, error) {
 	ignoreLineRegex := ""
 	alwaysDifferentLineRegex := ""
 
+	flag.StringVar(&fileList, "fileList", fileList, "read file paths from this file, one per line (- for stdin)")
 	flag.BoolVar(&showProgress, "progress", showProgress, "write progress to stderr")
 	flag.BoolVar(&printEqual, "printEqual", printEqual, "print equal similarities")
 	flag.StringVar(&diffTool, "diffTool", diffTool, "diff tool command line template")
@@ -133,6 +138,7 @@ func options() (cmdOptions, error) {
 	}
 
 	cmdOpts := cmdOptions{
+		fileList:         fileList,
 		showProgress:     showProgress,
 		printEqual:       printEqual,
 		ignoreDiffToolRC: ignoreDiffToolRC,
@@ -149,7 +155,7 @@ func options() (cmdOptions, error) {
 		}
 	}
 
-	if flag.NArg() == 0 {
+	if flag.NArg() == 0 && fileList == "" {
 		return cmdOptions{}, errNoFiles
 	}
 
@@ -157,6 +163,19 @@ func options() (cmdOptions, error) {
 }
 
 func run(paths []string, opts cmdOptions) (int, error) {
+	if opts.fileList != "" {
+		listedPaths, err := readFileList(opts.fileList)
+		if err != nil {
+			return -1, err
+		}
+
+		paths = append(paths, listedPaths...)
+	}
+
+	if len(paths) == 0 {
+		return -1, errNoFiles
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -193,6 +212,60 @@ func run(paths []string, opts cmdOptions) (int, error) {
 	}
 
 	return rc, nil
+}
+
+// readFileList reads non-empty lines from path, or stdin if path is "-".
+func readFileList(path string) ([]string, error) {
+	file := os.Stdin
+
+	if path != "-" {
+		var err error
+
+		file, err = os.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("open file list %s: %w", path, err)
+		}
+		defer file.Close() //nolint:errcheck // file is being read
+	}
+
+	var paths []string
+
+	scanner := bufio.NewScanner(file)
+	scanner.Split(scanFileListLine)
+
+	for scanner.Scan() {
+		if line := scanner.Text(); line != "" {
+			paths = append(paths, line)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read file list %s: %w", path, err)
+	}
+
+	return paths, nil
+}
+
+// scanFileListLine splits file lists on LF, CRLF, or CR line endings.
+func scanFileListLine(data []byte, atEOF bool) (int, []byte, error) {
+	idx := bytes.IndexAny(data, "\r\n")
+	if idx < 0 {
+		if atEOF && len(data) > 0 {
+			return len(data), data, nil
+		}
+
+		return 0, nil, nil
+	}
+
+	if data[idx] == '\r' && idx+1 == len(data) && !atEOF {
+		return 0, nil, nil
+	}
+
+	if data[idx] == '\r' && idx+1 < len(data) && data[idx+1] == '\n' {
+		return idx + 2, data[:idx], nil
+	}
+
+	return idx + 1, data[:idx], nil
 }
 
 // printSimilarities prints occurrences in sims. If opts.diffTool is set, it will run it to show differences.

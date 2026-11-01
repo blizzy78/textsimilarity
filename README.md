@@ -1,8 +1,6 @@
 [![GoDoc](https://pkg.go.dev/badge/github.com/blizzy78/textsimilarity)](https://pkg.go.dev/github.com/blizzy78/textsimilarity)
 
-
-textsimilarity
-==============
+# textsimilarity
 
 A Go package to analyze files for copied and pasted (and possibly slightly modified) text.
 
@@ -10,8 +8,7 @@ This can be used to not only find exactly equal occurrences, but also occurrence
 such as names of variables changed in source code.
 
 
-Command Line Usage
-------------------
+## Command Line Usage
 
 The `cmd/textsimilarity/` folder provides a standalone command line utility. You can build it like this:
 
@@ -31,26 +28,25 @@ You can also run it directly
 go run github.com/blizzy78/textsimilarity/cmd/textsimilarity@latest ...
 ```
 
-
-Usage Example
--------------
+## Usage Example
 
 After installation, you can now run it against [restic] source code, with [icdiff] as the diff tool:
 
-~~~bash
-$ git clone https://github.com/restic/restic.git
+```bash
+$ git clone --depth 1 https://github.com/restic/restic.git
 $ cd restic
 
-$ textsimilarity \
-	-progress \
-	-ignoreWS -ignoreBlank -minLen 6 -minLines 10 -maxDist 3 \
-	-ignoreRE '^[ \t]*(\*|//)' \
-	-alwaysDiffRE '^(package|import)' \
-	-diffTool 'icdiff --cols=150 --tabsize=4 --no-headers -W {{.File1}} {{.File2}}' \
-	-ignoreDiffToolRC \
-	-printEqual \
-	$(find . -type f -name '*\.go' -not \( -name '*_test.go' -o -name build.go -o -path '*helpers/*' \))
-~~~
+$ find . -type f -name '*\.go' -not \( -name '*_test.go' -o -name build.go -o -path '*helpers/*' \) | \
+	textsimilarity \
+		-fileList - \
+		-progress \
+		-ignoreWS -ignoreBlank -minLen 6 -minLines 10 -maxDist 3 \
+		-ignoreRE '^[ \t]*(\*|//)' \
+		-alwaysDiffRE '^(package|import)' \
+		-diffTool 'icdiff --cols=150 --tabsize=4 --no-headers -W {{.File1}} {{.File2}}' \
+		-ignoreDiffToolRC \
+		-printEqual
+```
 
 This will result in the following output:
 
@@ -59,11 +55,9 @@ This will result in the following output:
 _(Click to enlarge. This is only part of the output.)_
 
 
-License
--------
+## License
 
 This package is licensed under the MIT license.
-
 
 
 [restic]: https://github.com/restic/restic

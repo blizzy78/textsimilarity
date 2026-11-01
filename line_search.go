@@ -9,6 +9,11 @@ import (
 	"sync/atomic"
 )
 
+const (
+	maxLineQueryHits  = 4096
+	maxLineQueryBytes = 64 << 20
+)
+
 type searchLine struct {
 	position uint64
 	line     *fileLine
@@ -27,16 +32,16 @@ type lineBucket struct {
 	queries    []atomic.Pointer[lineQuery]
 }
 type lineSearch struct {
-	buckets   []lineBucket
-	fileCount int
-	blocks    *blockSearch
+	buckets    []lineBucket
+	blocks     *blockSearch
+	shortTails *blockSearch
+	queryBytes atomic.Int64
 }
 type lineQuery struct {
-	once       sync.Once
-	rangesOnce sync.Once
-	hits       []lineHit
-	ranges     []uint32
-	files      []int
+	once     sync.Once
+	hits     []lineHit
+	files    []int
+	fallback bool
 }
 type lineHit struct {
 	position uint64
@@ -62,7 +67,7 @@ func indexedLineCount(files []*File) (int, int) {
 // remaining suffix and the length extremes at each offset expose contradictions
 // cheaply. Every witness is rechecked against the root's current markers.
 func (candidate *searchCandidate) prepareWitnesses(files []*File, span int, limit int) {
-	if len(candidate.positions) < 2 || candidate.line.length <= limit {
+	if span < 1 || len(candidate.positions) < 2 || candidate.line.length <= limit {
 		return
 	}
 
@@ -121,10 +126,13 @@ func (bucket *lineBucket) appendMatches(ctx context.Context, query *lineQuery, n
 		radius = 128
 	}
 
-	indices := matchingSignatures(bucket.sketches, needle.low, needle.high, radius)
-	for _, idx := range indices {
+	for idx, signature := range bucket.sketches {
 		if contextDone(ctx) {
 			return
+		}
+
+		if bits.OnesCount64(needle.low^signature[0])+bits.OnesCount64(needle.high^signature[1]) > radius {
+			continue
 		}
 
 		candidate := &bucket.candidates[idx]
@@ -137,10 +145,25 @@ func (bucket *lineBucket) appendMatches(ctx context.Context, query *lineQuery, n
 			continue
 		}
 
-		for _, position := range candidate.positions {
-			query.hits = append(query.hits, lineHit{position: position, level: level})
+		if !query.appendHits(candidate.positions, level) {
+			return
 		}
 	}
+}
+
+func (query *lineQuery) appendHits(positions []uint64, level SimilarityLevel) bool {
+	if len(positions) > maxLineQueryHits-len(query.hits) {
+		query.hits = nil
+		query.fallback = true
+
+		return false
+	}
+
+	for _, position := range positions {
+		query.hits = append(query.hits, lineHit{position: position, level: level})
+	}
+
+	return true
 }
 
 func canExpandAllSeeds(ctx context.Context, source *fileToCheck, start int, query *lineQuery, opts *Options) bool {
@@ -156,7 +179,13 @@ func canExpandAllSeeds(ctx context.Context, source *fileToCheck, start int, quer
 			continue
 		}
 
-		if !canReachMinimum(ctx, source, start, peer, line, opts) {
+		if opts.MaxLineDistance > 0 {
+			// Indexed scans have no skipped lines. Deletions cannot bridge a
+			// suffix shorter than this necessary minimum.
+			if len(peer.f.lines)-line < opts.MinSimilarLines-opts.MaxLineDistance {
+				return false
+			}
+		} else if !canReachMinimum(ctx, source, start, peer, line, opts) {
 			return false
 		}
 	}
@@ -164,8 +193,8 @@ func canExpandAllSeeds(ctx context.Context, source *fileToCheck, start int, quer
 	return true
 }
 
-func newLineSearch(files []*File, opts *Options) *lineSearch {
-	if blockWidth(opts) == 0 {
+func newLineSearch(files []*File, opts *Options) *lineSearch { //nolint:cyclop // bounded bucket preparation, scattering, and worker setup
+	if lineIndexWidth(opts) == 0 {
 		return nil
 	}
 
@@ -175,7 +204,7 @@ func newLineSearch(files []*File, opts *Options) *lineSearch {
 		return nil
 	}
 
-	search := &lineSearch{buckets: make([]lineBucket, maximum+1), fileCount: len(files)}
+	search := &lineSearch{buckets: make([]lineBucket, maximum+1)}
 	counts := make([]int, maximum+1)
 
 	for _, file := range files {
@@ -207,10 +236,16 @@ func newLineSearch(files []*File, opts *Options) *lineSearch {
 	}
 
 	threads := min(runtime.GOMAXPROCS(0), len(search.buckets))
+
+	witnessSpan := opts.MinSimilarLines
+	if opts.MaxLineDistance > 0 {
+		witnessSpan = 0
+	}
+
 	for worker := 0; worker < threads; worker++ {
 		workers.Go(func() {
 			for length := worker; length < len(search.buckets); length += threads {
-				search.buckets[length].prepare(files, opts.MinSimilarLines, limit)
+				search.buckets[length].prepare(files, witnessSpan, limit)
 			}
 		})
 	}
@@ -297,25 +332,18 @@ func (search *lineSearch) find(ctx context.Context, file *fileToCheck, needle *f
 	}
 
 	query := search.query(ctx, needle, opts)
+	if query.fallback {
+		return linearLineIndex(ctx, file, needle, start, opts)
+	}
+
 	if contextDone(ctx) || len(query.hits) == 0 {
 		return -1, differentSimilarityLevel
 	}
 
-	query.rangesOnce.Do(func() {
-		query.ranges = make([]uint32, search.fileCount+1)
-		for _, hit := range query.hits {
-			query.ranges[int(hit.position>>32)+1]++
-		}
-
-		for idx := 1; idx < len(query.ranges); idx++ {
-			query.ranges[idx] += query.ranges[idx-1]
-		}
-	})
-	hits := query.hits[query.ranges[file.fileID]:query.ranges[file.fileID+1]]
 	position := uint64(file.fileID)<<32 | uint64(start) //nolint:gosec // internal nonnegative file and line ordinals
 
-	first := sort.Search(len(hits), func(idx int) bool { return hits[idx].position >= position })
-	for _, hit := range hits[first:] {
+	first := sort.Search(len(query.hits), func(idx int) bool { return query.hits[idx].position >= position })
+	for _, hit := range query.hits[first:] {
 		if hit.position>>32 != uint64(file.fileID) { //nolint:gosec // internal nonnegative file ordinal
 			break
 		}
@@ -353,6 +381,10 @@ func (search *lineSearch) query(ctx context.Context, needle *fileLine, opts *Opt
 		prepared := search.prepared(needle)
 		for length := max(0, needle.length-limit); length <= min(len(search.buckets)-1, needle.length+limit); length++ {
 			search.buckets[length].appendMatches(ctx, query, prepared, limit, opts)
+
+			if query.fallback {
+				return
+			}
 		}
 
 		search.finishQuery(query)
@@ -371,6 +403,13 @@ func (search *lineSearch) finishQuery(query *lineQuery) {
 		}
 	}
 
+	if !search.reserveQuery(query) {
+		query.hits, query.files = nil, nil
+		query.fallback = true
+
+		return
+	}
+
 	if len(query.hits) == 1 && search.blocks != nil && search.blocks.dead != nil {
 		position := query.hits[0].position
 		file, line := int(position>>32), int(position&0xffffffff)
@@ -382,16 +421,21 @@ func (search *lineSearch) finishQuery(query *lineQuery) {
 	}
 }
 
-func matchingSignatures(signatures [][2]uint64, low uint64, high uint64, radius int) []int {
-	var matches []int
+func (search *lineSearch) reserveQuery(query *lineQuery) bool {
+	// Upper bounds for both 32-bit and 64-bit Go. Input and query metadata are
+	// linear in input size; cap the potentially quadratic cached match lists.
+	bytes := int64(cap(query.hits))*16 + int64(cap(query.files))*8
 
-	for idx, signature := range signatures {
-		if bits.OnesCount64(low^signature[0])+bits.OnesCount64(high^signature[1]) <= radius {
-			matches = append(matches, idx)
+	for {
+		used := search.queryBytes.Load()
+		if bytes > maxLineQueryBytes-used {
+			return false
+		}
+
+		if search.queryBytes.CompareAndSwap(used, used+bytes) {
+			return true
 		}
 	}
-
-	return matches
 }
 
 func (search *lineSearch) prepared(line *fileLine) *searchCandidate {

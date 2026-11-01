@@ -18,6 +18,10 @@ func TestIndexedScanMatchesLinearScan(t *testing.T) { //nolint:gocognit,cyclop /
 
 	for trial := 0; trial < 500; trial++ {
 		opts := &Options{MinSimilarLines: 4 + random.IntN(9), MaxEditDistance: 1 + random.IntN(8)}
+		if trial%2 != 0 {
+			opts.MaxLineDistance = 1 + random.IntN(3)
+		}
+
 		if trial%3 == 0 {
 			opts.Flags = IgnoreWhitespaceFlag
 		}
@@ -52,6 +56,10 @@ func TestIndexedScanMatchesLinearScan(t *testing.T) { //nolint:gocognit,cyclop /
 		}
 
 		search := newLineSearch(files, opts)
+		if trial%5 == 0 {
+			search.queryBytes.Store(maxLineQueryBytes)
+		}
+
 		blocks := newAnchorSearch(files, opts)
 		search.blocks = blocks
 		// Shared immutable indexes and query caches must also work concurrently.

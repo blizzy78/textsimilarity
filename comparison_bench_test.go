@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -14,6 +15,15 @@ import (
 func BenchmarkComparisonsCorpus(b *testing.B) {
 	names, texts := readComparisonCorpus(b)
 	opts := &Options{MinSimilarLines: 10}
+
+	if raw := os.Getenv("TEXTSIMILARITY_MAX_LINE_DIST"); raw != "" {
+		distance, err := strconv.Atoi(raw)
+		if err != nil || distance < 0 {
+			b.Fatal("TEXTSIMILARITY_MAX_LINE_DIST must be a nonnegative integer")
+		}
+
+		opts.MaxLineDistance = distance
+	}
 
 	b.ResetTimer()
 

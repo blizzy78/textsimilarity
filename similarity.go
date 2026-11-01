@@ -41,6 +41,9 @@ const (
 // DefaultMaxEditDistance is the Levenshtein distance used when Options.MaxEditDistance <= 0.
 const DefaultMaxEditDistance = 5
 
+// DefaultMaxLineDistance is the CLI's default line-edit budget for an occurrence.
+const DefaultMaxLineDistance = 3
+
 const (
 	// blankLineFlag is set on a fileLine when that line is blank.
 	blankLineFlag = Flag(1 << iota)
@@ -67,6 +70,11 @@ type Options struct {
 	// MaxEditDistance is the maximum Levenshtein distance between similar lines that will be considered "similar."
 	// Lines that have a larger distance between them will be considered different.
 	MaxEditDistance int
+
+	// MaxLineDistance limits line insertions, deletions, and replacements in each
+	// occurrence relative to the source occurrence used during expansion. Lines considered similar by
+	// MaxEditDistance cost zero. Nonpositive values retain strict expansion.
+	MaxLineDistance int
 
 	// IgnoreLineRegex, if set, is an expression that a line must match to be ignored. Note that leading/trailing
 	// whitespace on lines as well as blank lines may be ignored by using Flags.
@@ -241,9 +249,17 @@ func similaritiesLoaded(ctx context.Context, files []*File, opts *Options) (<-ch
 
 	preparation.Wait()
 
-	if search != nil && blocks != nil {
+	switch {
+	case opts.MaxLineDistance > 0:
+		// Line lookups remain valid, but fixed-position block filters do not.
+		blocks = nil
+
+		if search != nil && opts.MinSimilarLines-opts.MaxLineDistance > 1 {
+			search.shortTails = &blockSearch{files: files, tails: tailSeeds(files, opts.MinSimilarLines-opts.MaxLineDistance-1)}
+		}
+	case search != nil && blocks != nil:
 		search.blocks = blocks
-	} else {
+	default:
 		blocks = newBlockSearch(files, opts)
 		search = nil
 	}
@@ -359,6 +375,10 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 			continue
 		}
 
+		if opts.MaxLineDistance > 0 && len(file.f.lines)-fileLineIdx < opts.MinSimilarLines {
+			continue
+		}
+
 		if !file.blocks.possible(ctx, file, fileLineIdx, opts) {
 			continue
 		}
@@ -375,13 +395,19 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 		var peerIDs []int
 
 		if file.search != nil && file.search.hasIndex(line) {
-			query := file.search.query(ctx, line, opts)
-			if !canExpandAllSeeds(ctx, file, fileLineIdx, query, opts) {
+			if file.search.matchesShortTail(ctx, file, fileLineIdx, opts) {
 				continue
 			}
 
-			peerIDs = query.files
-			peerCount = len(peerIDs)
+			query := file.search.query(ctx, line, opts)
+			if !query.fallback {
+				if !canExpandAllSeeds(ctx, file, fileLineIdx, query, opts) {
+					continue
+				}
+
+				peerIDs = query.files
+				peerCount = len(peerIDs)
+			}
 		}
 
 		for peerIndex := 0; peerIndex < peerCount; peerIndex++ {
@@ -498,6 +524,10 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 // occurrences. It never marks lines: other occurrences can only shorten the
 // eventual expansion by marking additional lines done, not extend it.
 func canReachMinimum(ctx context.Context, source *fileToCheck, sourceStart int, peer *fileToCheck, peerStart int, opts *Options) bool {
+	if opts.MaxLineDistance > 0 {
+		return canAlignMinimum(ctx, source, sourceStart, peer, peerStart, opts)
+	}
+
 	sourceEnd, peerEnd := sourceStart+1, peerStart+1
 	for sourceEnd-sourceStart < opts.MinSimilarLines {
 		if contextDone(ctx) {
@@ -577,6 +607,10 @@ func lineOccurrences(ctx context.Context, file *fileToCheck, line *fileLine, sta
 // The returned similarity level covering the modified occurrences may be lower than level (with respect to opts),
 // but will never be similarityLevelDifferent.
 func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level SimilarityLevel, opts *Options) SimilarityLevel { //nolint:gocognit,cyclop // it's complicated
+	if opts.MaxLineDistance > 0 {
+		return expandLineOccurrences(ctx, occs, level, opts)
+	}
+
 	ends := intSlicePool.Get().([]int) //nolint:forcetypeassert // we know what's in the pool
 	ends = ends[:0]
 
@@ -715,6 +749,10 @@ func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLi
 		return file.search.find(ctx, file, needle, startLine, opts)
 	}
 
+	return linearLineIndex(ctx, file, needle, startLine, opts)
+}
+
+func linearLineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLine int, opts *Options) (int, SimilarityLevel) {
 	endLine := len(file.f.lines)
 
 	for lineIdx := startLine; ; lineIdx++ {
@@ -727,6 +765,10 @@ func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLi
 		}
 
 		if file.isDone(lineIdx) {
+			continue
+		}
+
+		if opts.MaxLineDistance > 0 && !acceptLine(file.f.lines[lineIdx], opts) {
 			continue
 		}
 

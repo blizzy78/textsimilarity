@@ -96,6 +96,7 @@ func options() (cmdOptions, error) {
 	minLineLength := 0
 	minSimilarLines := 10
 	maxEditDistance := textsimilarity.DefaultMaxEditDistance
+	maxLineDistance := textsimilarity.DefaultMaxLineDistance
 	ignoreLineRegex := ""
 	alwaysDifferentLineRegex := ""
 
@@ -110,6 +111,7 @@ func options() (cmdOptions, error) {
 	flag.IntVar(&minLineLength, "minLen", minLineLength, "minimum line length")
 	flag.IntVar(&minSimilarLines, "minLines", minSimilarLines, "minimum similar lines")
 	flag.IntVar(&maxEditDistance, "maxDist", maxEditDistance, "maximum edit distance")
+	flag.IntVar(&maxLineDistance, "maxLineDist", maxLineDistance, "maximum line edits per occurrence (0 for strict expansion)")
 	flag.StringVar(&ignoreLineRegex, "ignoreRE", ignoreLineRegex, "ignore lines matching regex")
 	flag.StringVar(&alwaysDifferentLineRegex, "alwaysDiffRE", alwaysDifferentLineRegex, "always consider lines matching regex as different")
 
@@ -119,6 +121,7 @@ func options() (cmdOptions, error) {
 		MinLineLength:   minLineLength,
 		MinSimilarLines: minSimilarLines,
 		MaxEditDistance: maxEditDistance,
+		MaxLineDistance: maxLineDistance,
 	}
 
 	if ignoreWhitespace {
@@ -250,7 +253,7 @@ func readFileList(path string) ([]string, error) {
 func scanFileListLine(data []byte, atEOF bool) (int, []byte, error) {
 	idx := bytes.IndexAny(data, "\r\n")
 	if idx < 0 {
-		if atEOF && len(data) > 0 {
+		if atEOF && len(data) != 0 {
 			return len(data), data, nil
 		}
 

@@ -39,6 +39,14 @@ type blockSearch struct {
 }
 
 func blockWidth(opts *Options) int {
+	if opts.MaxLineDistance > 0 {
+		return 0
+	}
+
+	return lineIndexWidth(opts)
+}
+
+func lineIndexWidth(opts *Options) int {
 	limit := opts.MaxEditDistance
 	if limit <= 0 {
 		limit = DefaultMaxEditDistance

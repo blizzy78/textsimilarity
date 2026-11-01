@@ -14,6 +14,48 @@ type tailQuery struct {
 	positions []uint64
 }
 
+func tailSeeds(files []*File, count int) map[int][]tailSeed {
+	groups := map[string]int{}
+
+	var tails []tailSeed
+
+	for fileID, file := range files {
+		for lineIndex := max(0, len(file.lines)-count); lineIndex < len(file.lines); lineIndex++ {
+			line := file.lines[lineIndex]
+
+			group, found := groups[line.text]
+			if !found {
+				group = len(tails)
+				groups[line.text] = group
+				tails = append(tails, tailSeed{line: line})
+			}
+
+			tails[group].positions = append(tails[group].positions, uint64(fileID)<<32|uint64(lineIndex))
+		}
+	}
+
+	seeds := map[int][]tailSeed{}
+	for _, group := range tails {
+		seeds[group.line.length] = append(seeds[group.line.length], group)
+	}
+
+	return seeds
+}
+
+func (search *lineSearch) matchesShortTail(ctx context.Context, source *fileToCheck, start int, opts *Options) bool {
+	if search.shortTails == nil {
+		return false
+	}
+
+	limit := opts.MaxEditDistance
+	if limit <= 0 {
+		limit = DefaultMaxEditDistance
+	}
+	// An occurrence shorter than minimum minus the line budget cannot align
+	// enough source lines, even by spending the entire budget on deletions.
+	return search.shortTails.matchesTail(ctx, source, start, limit, opts)
+}
+
 func (index *blockSearch) matchesTail(ctx context.Context, source *fileToCheck, start int, limit int, opts *Options) bool {
 	if index.tails == nil || source.search == nil {
 		return false

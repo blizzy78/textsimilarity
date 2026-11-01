@@ -23,7 +23,7 @@ func TestSimilarities(t *testing.T) {
 	file1 := newFile("1.txt", "aaaaaaaaaa\nbbbbbbbbbb\ncccccccccc\nxxxxxxxxxx\ncccccccccc\n")
 	file2 := newFile("2.txt", "aaaaaaaaaa\nbbbbbbbbbb\n  cccccccccc  \ndddddddddd\ncccccxcccc\n")
 
-	simsCh, progressCh, _ := Similarities(context.Background(), []*File{file1, file2}, &Options{MaxEditDistance: 2})
+	simsCh, progressCh, _ := Similarities(context.Background(), []*File{file1, file2}, &Options{})
 
 	var sims []*Similarity
 
@@ -44,8 +44,8 @@ func TestSimilarities(t *testing.T) {
 	is.Equal(sims[0].Occurrences[1].Start, 0)
 	is.Equal(sims[0].Occurrences[1].End, 2)
 
-	is.Equal(len(sims[1].Occurrences), 3)
-	is.Equal(sims[1].Level, SimilarSimilarityLevel)
+	is.Equal(len(sims[1].Occurrences), 2)
+	is.Equal(sims[1].Level, EqualSimilarityLevel)
 
 	is.Equal(sims[1].Occurrences[0].File, file1)
 	is.Equal(sims[1].Occurrences[0].Start, 2)
@@ -54,10 +54,6 @@ func TestSimilarities(t *testing.T) {
 	is.Equal(sims[1].Occurrences[1].File, file1)
 	is.Equal(sims[1].Occurrences[1].Start, 4)
 	is.Equal(sims[1].Occurrences[1].End, 5)
-
-	is.Equal(sims[1].Occurrences[2].File, file2)
-	is.Equal(sims[1].Occurrences[2].Start, 4)
-	is.Equal(sims[1].Occurrences[2].End, 5)
 }
 
 func TestSimilarities_IgnoreWhitespace(t *testing.T) {
@@ -67,8 +63,7 @@ func TestSimilarities_IgnoreWhitespace(t *testing.T) {
 	file2 := newFile("2.txt", "aaaaaaaaaa\nbbbbbbbbbb\n  cccccccccc  \ndddddddddd\ncccccxcccc\n")
 
 	simsCh, progressCh, _ := Similarities(context.Background(), []*File{file1, file2}, &Options{
-		Flags:           IgnoreWhitespaceFlag,
-		MaxEditDistance: 2,
+		Flags: IgnoreWhitespaceFlag,
 	})
 
 	var sims []*Similarity
@@ -77,7 +72,7 @@ func TestSimilarities_IgnoreWhitespace(t *testing.T) {
 		sims = readSimilaritiesChan(simsCh)
 	}, drainProgressChan(progressCh))
 
-	is.Equal(len(sims), 2)
+	is.Equal(len(sims), 1)
 
 	is.Equal(len(sims[0].Occurrences), 2)
 
@@ -88,16 +83,6 @@ func TestSimilarities_IgnoreWhitespace(t *testing.T) {
 	is.Equal(sims[0].Occurrences[1].File, file2)
 	is.Equal(sims[0].Occurrences[1].Start, 0)
 	is.Equal(sims[0].Occurrences[1].End, 3)
-
-	is.Equal(len(sims[1].Occurrences), 2)
-
-	is.Equal(sims[1].Occurrences[0].File, file1)
-	is.Equal(sims[1].Occurrences[0].Start, 4)
-	is.Equal(sims[1].Occurrences[0].End, 5)
-
-	is.Equal(sims[1].Occurrences[1].File, file2)
-	is.Equal(sims[1].Occurrences[1].Start, 4)
-	is.Equal(sims[1].Occurrences[1].End, 5)
 }
 
 func TestSimilarities_IgnoreBlankLines(t *testing.T) {
@@ -107,8 +92,7 @@ func TestSimilarities_IgnoreBlankLines(t *testing.T) {
 	file2 := newFile("2.txt", "yyyyyyyyyy\nzzzzzzzzzz\naaaaaaaaaa\n\nbbbbbbbbbb\n")
 
 	simsCh, progressCh, _ := Similarities(context.Background(), []*File{file1, file2}, &Options{
-		Flags:           IgnoreBlankLinesFlag,
-		MaxEditDistance: 2,
+		Flags: IgnoreBlankLinesFlag,
 	})
 
 	var sims []*Similarity
@@ -138,7 +122,6 @@ func TestSimilarities_IgnoreRegex(t *testing.T) {
 
 	simsCh, progressCh, _ := Similarities(context.Background(), []*File{file1, file2}, &Options{
 		IgnoreLineRegex: regexp.MustCompile("foo|bar"),
-		MaxEditDistance: 2,
 	})
 
 	var sims []*Similarity
@@ -204,8 +187,7 @@ func TestSimilarities_MinLineLength(t *testing.T) {
 	file2 := newFile("2.txt", "aaaaaaaaaa\nbbbbbbbbbb\nbar\ncccccccccc\n")
 
 	simsCh, progressCh, _ := Similarities(context.Background(), []*File{file1, file2}, &Options{
-		MinLineLength:   5,
-		MaxEditDistance: 2,
+		MinLineLength: 5,
 	})
 
 	var sims []*Similarity
@@ -253,14 +235,14 @@ func TestLinesSimilarity(t *testing.T) {
 		{
 			givenLine1: newFileLine("aaaaaaaaaa", true),
 			givenLine2: newFileLine("aaaaxaaaaa", true),
-			wantLevel:  SimilarSimilarityLevel,
+			wantLevel:  differentSimilarityLevel,
 		},
 	}
 
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("[%d] line1=%+v, line2=%+v, ignoreWS=%t", i, test.givenLine1, test.givenLine2, test.givenFlags&IgnoreWhitespaceFlag == IgnoreWhitespaceFlag), func(t *testing.T) {
 			is := is.New(t)
-			is.Equal(linesSimilarity(test.givenLine1, test.givenLine2, &Options{Flags: test.givenFlags, MaxEditDistance: 2}), test.wantLevel)
+			is.Equal(linesSimilarity(test.givenLine1, test.givenLine2), test.wantLevel)
 		})
 	}
 }
@@ -362,15 +344,15 @@ func TestLineIndex(t *testing.T) {
 			wantLine:    -1,
 		},
 		{
-			description: "found (similar)",
+			description: "changed lines are not seeds",
 			givenFile: newFileToCheck(t,
 				[]string{"aaaaaxaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"},
 				[]bool{false, false, false, false, false},
 				false,
 			),
 			givenNeedle: newFileLine("aaaaaaaaaa", false),
-			wantLine:    0,
-			wantLevel:   SimilarSimilarityLevel,
+			wantLine:    -1,
+			wantLevel:   differentSimilarityLevel,
 		},
 	}
 
@@ -378,7 +360,7 @@ func TestLineIndex(t *testing.T) {
 		t.Run(fmt.Sprintf("[%d] %s", i, test.description), func(t *testing.T) {
 			is := is.New(t)
 
-			line, level := lineIndex(context.Background(), test.givenFile, test.givenNeedle, test.givenStartLine, &Options{MaxEditDistance: 2})
+			line, level := lineIndex(context.Background(), test.givenFile, test.givenNeedle, test.givenStartLine, &Options{})
 
 			if test.wantLine < 0 {
 				is.True(line < 0)
@@ -396,17 +378,18 @@ func TestLineIndex_Large(t *testing.T) {
 
 	file, needle := newLargeLineIndexFixture(t)
 
-	opts := Options{MaxEditDistance: 2}
+	opts := Options{}
 
 	line, level := lineIndex(context.Background(), file, needle, 0, &opts)
 
 	is.Equal(line, 50)
-	is.Equal(level, SimilarSimilarityLevel)
+	is.Equal(level, EqualSimilarityLevel)
 }
 
 func TestExpandOccurrences(t *testing.T) {
 	tests := []struct {
 		description      string
+		maxLineDistance  int
 		givenOccurrences []*FileOccurrence
 		givenFlags       Flag
 		wantEnds         []int
@@ -600,7 +583,8 @@ func TestExpandOccurrences(t *testing.T) {
 			wantLevel:  EqualSimilarityLevel,
 		},
 		{
-			description: "similar",
+			description:     "similar",
+			maxLineDistance: 1,
 			givenOccurrences: []*FileOccurrence{
 				{
 					fileToCheck: newFileToCheck(t,
@@ -612,7 +596,7 @@ func TestExpandOccurrences(t *testing.T) {
 				},
 				{
 					fileToCheck: newFileToCheck(t,
-						[]string{"aaaaaxaaaa", "bbbbbbbbbb", "cccccxcccc", "dddddddddd", "eeeeeexeee"},
+						[]string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccxcccc", "dddddddddd", "eeeeeexeee"},
 						[]bool{false, false, false, false, false},
 						false,
 					),
@@ -628,7 +612,7 @@ func TestExpandOccurrences(t *testing.T) {
 		t.Run(fmt.Sprintf("[%d] %s", i, test.description), func(t *testing.T) {
 			is := is.New(t)
 
-			level := expandOccurrences(context.Background(), test.givenOccurrences, EqualSimilarityLevel, &Options{Flags: test.givenFlags, MaxEditDistance: 2})
+			level := expandOccurrences(context.Background(), test.givenOccurrences, EqualSimilarityLevel, &Options{Flags: test.givenFlags, MaxLineDistance: test.maxLineDistance})
 
 			for i, o := range test.givenOccurrences {
 				is.Equal(o.End, test.wantEnds[i])
@@ -671,11 +655,11 @@ func TestLineOccurrences(t *testing.T) {
 			wantLevel:       EqualSimilarityLevel,
 		},
 		{
-			description:     "similar",
+			description:     "changed lines are not seeds",
 			givenFile:       newFileToCheck(t, []string{"aaaaaxaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee"}, []bool{false, false, false, false, false}, false),
 			givenLine:       newFileLine("aaaaaaaaaa", false),
-			wantOccurrences: []*FileOccurrence{{Start: 0, End: 1}},
-			wantLevel:       SimilarSimilarityLevel,
+			wantOccurrences: nil,
+			wantLevel:       EqualSimilarityLevel,
 		},
 	}
 
@@ -683,7 +667,7 @@ func TestLineOccurrences(t *testing.T) {
 		t.Run(fmt.Sprintf("[%d] %s", i, test.description), func(t *testing.T) {
 			is := is.New(t)
 
-			occs, level := lineOccurrences(context.Background(), test.givenFile, test.givenLine, test.givenStartLine, &Options{MaxEditDistance: 2})
+			occs, level := lineOccurrences(context.Background(), test.givenFile, test.givenLine, test.givenStartLine, &Options{})
 
 			is.Equal(len(occs), len(test.wantOccurrences))
 
@@ -879,30 +863,15 @@ func TestFileSimilarities_MinSimilarLines(t *testing.T) {
 	testFileSimilarities(t, givenFileToCheck, 0, 3, wantSimilarities)
 }
 
-func TestFileSimilarities_Similar(t *testing.T) {
-	givenFile := &File{
-		Name: "test.txt",
+func TestFileSimilarities_RequiresExactSeed(t *testing.T) {
+	opts := &Options{MinSimilarLines: 1, MaxLineDistance: 1}
+	source := lineEditOccurrence(t, "source", []string{"aaaa"}, opts)
+	peer := lineEditOccurrence(t, "peer", []string{"aaab"}, opts)
+
+	source.fileToCheck.peers = []*fileToCheck{peer.fileToCheck}
+	if got := fileSimilarities(t.Context(), source.fileToCheck, opts); len(got) != 0 {
+		t.Fatal("a character-similar line was used as an exact anchor")
 	}
-
-	lines := []string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "aaaaxaaaaa", "bbbbbbbbbb", "xxxxxxxxxx", "aaaaaaaaaa", "bbbbbbbbbb"}
-	linesDone := []bool{false, false, false, false, false, false, false, false}
-
-	givenFileToCheck := newFileToCheck(t, lines, linesDone, false)
-	givenFileToCheck.peers = []*fileToCheck{newFileToCheck(t, lines, linesDone, false)}
-	givenFileToCheck.peers[0].f = givenFileToCheck.f
-
-	wantSimilarities := []*Similarity{
-		{
-			Occurrences: []*FileOccurrence{
-				{File: givenFile, Start: 0, End: 2, fileToCheck: givenFileToCheck},
-				{File: givenFile, Start: 3, End: 5, fileToCheck: givenFileToCheck.peers[0]},
-				{File: givenFile, Start: 6, End: 8, fileToCheck: givenFileToCheck.peers[0]},
-			},
-			Level: SimilarSimilarityLevel,
-		},
-	}
-
-	testFileSimilarities(t, givenFileToCheck, 0, 0, wantSimilarities)
 }
 
 func TestFileSimilarities_SingleFile_Overlap(t *testing.T) {
@@ -940,7 +909,6 @@ func (s *foobar) GetName() string {
 
 	opts := Options{
 		MinSimilarLines: 3,
-		MaxEditDistance: 5,
 	}
 
 	givenFile := File{
@@ -980,7 +948,6 @@ func testFileSimilarities(t *testing.T, givenFile *fileToCheck, givenFlags Flag,
 	sims := fileSimilarities(context.Background(), givenFile, &Options{
 		Flags:           givenFlags,
 		MinSimilarLines: givenMinSimilarLines,
-		MaxEditDistance: 2,
 	})
 
 	if len(sims) != len(wantSimilarities) {
@@ -1024,7 +991,7 @@ func TestFile_Load(t *testing.T) {
 
 	is.True(file.lines[2].flagSet(matchesIgnoreRegexLineFlag))
 
-	is.Equal(file.lines[4].textData().runes, []rune("𨊂"))
+	is.Equal(file.lines[4].text, "𨊂")
 }
 
 func TestFileLine_LongEnough(t *testing.T) {
@@ -1054,7 +1021,7 @@ func newLargeLineIndexFixture(t testingTOrB) (*fileToCheck, *fileLine) {
 
 	texts := strings.Split(string(data), "\n")
 	file := newFileToCheck(t, texts, make([]bool, len(texts)), false)
-	needle := newFileLine(texts[50][:10]+"x"+texts[50][10:], false)
+	needle := newFileLine(texts[50], false)
 
 	return file, needle
 }

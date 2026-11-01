@@ -11,10 +11,10 @@ import (
 
 // BenchmarkComparisonsCorpus excludes file reading and parsing. All candidate
 // indexing, matching, deduplication and channel delivery remain inside the timer.
-// Inputs are loaded again before each scan, so no decoded text or index is reused.
+// Inputs are loaded again before each scan, so no prepared headers or index is reused.
 func BenchmarkComparisonsCorpus(b *testing.B) {
 	names, texts := readComparisonCorpus(b)
-	opts := &Options{MinSimilarLines: 10}
+	opts := &Options{MinSimilarLines: 10, MaxLineDistance: DefaultMaxLineDistance}
 
 	if raw := os.Getenv("TEXTSIMILARITY_MAX_LINE_DIST"); raw != "" {
 		distance, err := strconv.Atoi(raw)
@@ -31,7 +31,6 @@ func BenchmarkComparisonsCorpus(b *testing.B) {
 		b.StopTimer()
 		files := loadComparisonCorpus(b, names, texts, opts)
 		b.StartTimer()
-		prepareComparisonCorpus(files, opts)
 
 		sims, progress := similaritiesLoaded(context.Background(), files, opts)
 		similarityCount = countBenchmarkSimilarities(sims, progress)
@@ -106,23 +105,10 @@ func loadComparisonCorpus(tb testing.TB, names []string, texts []string, opts *O
 	files := make([]*File, len(names))
 	for idx, name := range names {
 		files[idx] = &File{Name: name, R: strings.NewReader(texts[idx])}
-		if err := files[idx].loadBuffered(opts, 0, buffer); err != nil {
+		if err := files[idx].loadBuffered(opts, buffer); err != nil {
 			tb.Fatal(err)
 		}
 	}
 
 	return files
-}
-
-func prepareComparisonCorpus(files []*File, opts *Options) {
-	width := blockWidth(opts)
-	if width == 0 {
-		return
-	}
-
-	for _, file := range files {
-		for _, line := range file.lines {
-			line.prepareLengthBuckets(width)
-		}
-	}
 }

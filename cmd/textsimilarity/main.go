@@ -95,7 +95,6 @@ func options() (cmdOptions, error) {
 	ignoreBlankLines := false
 	minLineLength := 0
 	minSimilarLines := 10
-	maxEditDistance := textsimilarity.DefaultMaxEditDistance
 	maxLineDistance := textsimilarity.DefaultMaxLineDistance
 	ignoreLineRegex := ""
 	alwaysDifferentLineRegex := ""
@@ -110,8 +109,7 @@ func options() (cmdOptions, error) {
 	flag.BoolVar(&ignoreBlankLines, "ignoreBlank", ignoreBlankLines, "ignore blank lines")
 	flag.IntVar(&minLineLength, "minLen", minLineLength, "minimum line length")
 	flag.IntVar(&minSimilarLines, "minLines", minSimilarLines, "minimum similar lines")
-	flag.IntVar(&maxEditDistance, "maxDist", maxEditDistance, "maximum edit distance")
-	flag.IntVar(&maxLineDistance, "maxLineDist", maxLineDistance, "maximum line edits per occurrence (0 for strict expansion)")
+	flag.IntVar(&maxLineDistance, "maxLineDist", maxLineDistance, "maximum consecutive line edits, reset by exact matches (0 for exact expansion)")
 	flag.StringVar(&ignoreLineRegex, "ignoreRE", ignoreLineRegex, "ignore lines matching regex")
 	flag.StringVar(&alwaysDifferentLineRegex, "alwaysDiffRE", alwaysDifferentLineRegex, "always consider lines matching regex as different")
 
@@ -120,7 +118,6 @@ func options() (cmdOptions, error) {
 	simOpts := textsimilarity.Options{
 		MinLineLength:   minLineLength,
 		MinSimilarLines: minSimilarLines,
-		MaxEditDistance: maxEditDistance,
 		MaxLineDistance: maxLineDistance,
 	}
 

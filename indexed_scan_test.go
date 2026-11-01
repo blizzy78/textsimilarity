@@ -17,7 +17,7 @@ func TestIndexedScanMatchesLinearScan(t *testing.T) { //nolint:gocognit,cyclop /
 	pool := []string{"", "}", "alpha beta", "alpha betb", "func main() {}", "const n = 1;", "# Heading", "Ordinary prose", "日本語", "é é 🚀", "\xff\xfe", strings.Repeat("a", 255), strings.Repeat("a", 256)}
 
 	for trial := 0; trial < 500; trial++ {
-		opts := &Options{MinSimilarLines: 4 + random.IntN(9), MaxEditDistance: 1 + random.IntN(8)}
+		opts := &Options{MinSimilarLines: 4 + random.IntN(9)}
 		if trial%2 != 0 {
 			opts.MaxLineDistance = 1 + random.IntN(3)
 		}
@@ -50,23 +50,18 @@ func TestIndexedScanMatchesLinearScan(t *testing.T) { //nolint:gocognit,cyclop /
 			}
 
 			files[idx] = newFile(fmt.Sprint(idx), text)
-			if err := files[idx].loadBuffered(opts, blockWidth(opts), make([]byte, 4096)); err != nil {
+			if err := files[idx].loadBuffered(opts, make([]byte, 4096)); err != nil {
 				t.Fatal(err)
 			}
 		}
 
 		search := newLineSearch(files, opts)
-		if trial%5 == 0 {
-			search.queryBytes.Store(maxLineQueryBytes)
-		}
 
-		blocks := newAnchorSearch(files, opts)
-		search.blocks = blocks
-		// Shared immutable indexes and query caches must also work concurrently.
+		// Shared immutable exact-line postings must also work concurrently.
 		var roots sync.WaitGroup
 		for idx, file := range files {
 			roots.Go(func() {
-				indexed := &fileToCheck{f: file, inputs: files, fileID: idx, search: search, blocks: blocks}
+				indexed := &fileToCheck{f: file, inputs: files, fileID: idx, search: search}
 				linear := &fileToCheck{f: file, inputs: files, fileID: idx}
 				got := scanRecords(fileSimilarities(t.Context(), indexed, opts))
 
@@ -103,15 +98,13 @@ func TestIndexedScanLongLines(t *testing.T) {
 
 		files := []*File{newFile("a", text), newFile("b", text)}
 		for _, file := range files {
-			if err := file.loadBuffered(opts, blockWidth(opts), make([]byte, 4096)); err != nil {
+			if err := file.loadBuffered(opts, make([]byte, 4096)); err != nil {
 				t.Fatal(err)
 			}
 		}
 
 		search := newLineSearch(files, opts)
-		blocks := newAnchorSearch(files, opts)
-		search.blocks = blocks
-		indexed := &fileToCheck{f: files[0], inputs: files, search: search, blocks: blocks}
+		indexed := &fileToCheck{f: files[0], inputs: files, search: search}
 		linear := &fileToCheck{f: files[0], inputs: files}
 		got := scanRecords(fileSimilarities(t.Context(), indexed, opts))
 
@@ -125,7 +118,7 @@ func TestIndexedScanLongLines(t *testing.T) {
 func TestIndexedScanOptionBoundaries(t *testing.T) { //nolint:gocognit // compare both index bounds with a full matching block
 	for _, span := range []int{4, 64} {
 		for _, limit := range []int{1, 32} {
-			opts := &Options{MinSimilarLines: span, MaxEditDistance: limit}
+			opts := &Options{MinSimilarLines: span, MaxLineDistance: limit}
 
 			lines := make([]string, 80)
 			for idx := range lines {
@@ -137,14 +130,13 @@ func TestIndexedScanOptionBoundaries(t *testing.T) { //nolint:gocognit // compar
 
 			files := []*File{newFile("a", first), newFile("b", strings.Join(lines, "\n"))}
 			for _, file := range files {
-				if err := file.loadBuffered(opts, blockWidth(opts), make([]byte, 4096)); err != nil {
+				if err := file.loadBuffered(opts, make([]byte, 4096)); err != nil {
 					t.Fatal(err)
 				}
 			}
 
-			search, blocks := newLineSearch(files, opts), newAnchorSearch(files, opts)
-			search.blocks = blocks
-			indexed := &fileToCheck{f: files[0], inputs: files, search: search, blocks: blocks}
+			search := newLineSearch(files, opts)
+			indexed := &fileToCheck{f: files[0], inputs: files, search: search}
 			linear := &fileToCheck{f: files[0], inputs: files}
 			got := scanRecords(fileSimilarities(t.Context(), indexed, opts))
 

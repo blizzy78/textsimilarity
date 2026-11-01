@@ -7,9 +7,10 @@ type lineCell struct {
 	level    SimilarityLevel
 }
 
-// A row covers only columns within the line-edit budget of its source row.
-// All alternatives remain available, so repeated or fuzzy lines do not force
-// a greedy insertion/deletion choice that can miss a later alignment.
+// Keep the least consecutive edit count at each reachable peer prefix. A smaller
+// count dominates larger counts for every continuation, including exact resets.
+// Offsets can accumulate across resets, so a fixed diagonal band is not valid.
+// Only two trimmed rows are retained, bounded by the peer's input size.
 type lineAlignment struct {
 	peer      *fileToCheck
 	start     int
@@ -17,14 +18,13 @@ type lineAlignment struct {
 	positions []int
 	ended     bool
 	limit     int
-	row       int
 	lower     int
 	previous  []lineCell
 	current   []lineCell
 }
 
 func newLineAlignment(peer *fileToCheck, start int, source *fileToCheck, opts *Options) *lineAlignment {
-	limit := min(opts.MaxLineDistance, max(len(source.f.lines), len(peer.f.lines)))
+	limit := min(max(0, opts.MaxLineDistance), max(len(source.f.lines), len(peer.f.lines)))
 	return &lineAlignment{peer: peer, start: start, next: start, limit: limit}
 }
 
@@ -79,7 +79,7 @@ func (alignment *lineAlignment) initialize(ctx context.Context, opts *Options) {
 	alignment.previous[0].level = EqualSimilarityLevel
 }
 
-func (alignment *lineAlignment) nextCell(source *fileToCheck, line int, column int, lower int, opts *Options) lineCell {
+func (alignment *lineAlignment) nextCell(source *fileToCheck, line int, column int, lower int) lineCell {
 	cell := editedLineCell(alignment.cell(column)) // Remove this source line.
 	if column > lower {
 		cell = betterLineCell(cell, editedLineCell(alignment.current[column-lower-1]))
@@ -94,17 +94,17 @@ func (alignment *lineAlignment) nextCell(source *fileToCheck, line int, column i
 		return cell
 	}
 
-	level := source.compare(source.f.lines[line], alignment.peer.f.lines[alignment.positions[column-1]], opts)
+	level := linesSimilarity(source.f.lines[line], alignment.peer.f.lines[alignment.positions[column-1]])
 	if level == differentSimilarityLevel {
 		diagonal = editedLineCell(diagonal) // Replace a line, costing one edit.
 	} else {
-		diagonal.level = min(diagonal.level, level)
+		diagonal.distance = 0 // Only exact matches reset the consecutive edit counter.
 	}
 
 	return betterLineCell(cell, diagonal)
 }
 
-// advance returns the least-cost peer prefix for the next source prefix. On a
+// advance returns the peer prefix with the smallest trailing edit run. On a
 // tie, prefer an equal alignment, then the longer peer prefix. Endpoints are not
 // committed while exploring; later rows may select a different earlier path.
 func (alignment *lineAlignment) advance(ctx context.Context, source *fileToCheck, line int, opts *Options) (int, SimilarityLevel, bool) {
@@ -112,11 +112,14 @@ func (alignment *lineAlignment) advance(ctx context.Context, source *fileToCheck
 		alignment.initialize(ctx, opts)
 	}
 
-	alignment.row++
-	alignment.readThrough(ctx, alignment.row+alignment.limit, opts)
-	lower := max(0, alignment.row-alignment.limit)
+	// A diagonal exact match can reset the counter, permitting another limit
+	// insertions in this row. Read no farther than that reachable prefix.
+	previousEnd := alignment.lower + len(alignment.previous)
+	lookahead := min(len(alignment.peer.f.lines)-alignment.start, previousEnd+alignment.limit)
+	alignment.readThrough(ctx, lookahead, opts)
+	lower := alignment.lower
 
-	upper := min(len(alignment.positions), alignment.row+alignment.limit)
+	upper := min(len(alignment.positions), lookahead)
 	if lower > upper || contextDone(ctx) {
 		return 0, differentSimilarityLevel, false
 	}
@@ -135,7 +138,7 @@ func (alignment *lineAlignment) advance(ctx context.Context, source *fileToCheck
 			return 0, differentSimilarityLevel, false
 		}
 
-		cell := alignment.nextCell(source, line, column, lower, opts)
+		cell := alignment.nextCell(source, line, column, lower)
 
 		alignment.current[column-lower] = cell
 		if validLinePrefix(cell, best, alignment.limit) {
@@ -143,12 +146,11 @@ func (alignment *lineAlignment) advance(ctx context.Context, source *fileToCheck
 		}
 	}
 
-	alignment.previous, alignment.current = alignment.current, alignment.previous
-
-	alignment.lower = lower
 	if best.distance > alignment.limit {
 		return 0, differentSimilarityLevel, false
 	}
+
+	alignment.commitRow(lower)
 
 	end := alignment.start
 	if bestColumn > 0 {
@@ -156,6 +158,22 @@ func (alignment *lineAlignment) advance(ctx context.Context, source *fileToCheck
 	}
 
 	return end, best.level, true
+}
+
+func (alignment *lineAlignment) commitRow(lower int) {
+	first, last := 0, len(alignment.current)-1
+	for alignment.current[first].distance > alignment.limit {
+		first++
+	}
+
+	for alignment.current[last].distance > alignment.limit {
+		last--
+	}
+	// Compact in place; slicing off the front would lose reusable capacity.
+	copy(alignment.current, alignment.current[first:last+1])
+	alignment.current = alignment.current[:last-first+1]
+	alignment.previous, alignment.current = alignment.current, alignment.previous
+	alignment.lower = lower + first
 }
 
 func canAlignMinimum(ctx context.Context, source *fileToCheck, sourceStart int, peer *fileToCheck, peerStart int, opts *Options) bool {
@@ -188,8 +206,6 @@ func sourceExpansionLines(ctx context.Context, occs []*FileOccurrence, opts *Opt
 
 	lastSeed, otherFile := source.Start, false
 	for _, peer := range occs[1:] {
-		budget := min(opts.MaxLineDistance, max(len(source.fileToCheck.f.lines), len(peer.fileToCheck.f.lines)))
-		maximum = min(maximum, len(peer.fileToCheck.f.lines)-peer.End+budget)
 		lastSeed = max(lastSeed, peer.Start)
 		otherFile = otherFile || peer.fileToCheck.f != source.fileToCheck.f
 	}
@@ -237,9 +253,9 @@ func alignPeerPrefix(ctx context.Context, source *fileToCheck, peer *FileOccurre
 	return rows, end, level
 }
 
-// Stream one peer's band at a time. If a later peer shortens the common prefix,
+// Stream one peer's frontier at a time. If a later peer shortens the common prefix,
 // revisit earlier peers at that prefix. Keep only endpoints and levels for the
-// group, not a separate dynamic-programming band for every occurrence.
+// group, not a separate dynamic-programming frontier for every occurrence.
 func expandLineOccurrences(ctx context.Context, occs []*FileOccurrence, level SimilarityLevel, opts *Options) SimilarityLevel {
 	if len(occs) < 2 {
 		return level

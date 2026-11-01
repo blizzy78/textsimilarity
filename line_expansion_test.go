@@ -37,15 +37,18 @@ func TestExpandLineEdits(t *testing.T) { //nolint:gocognit // table checks endpo
 		{"removed line", []string{alpha, beta, gamma, delta}, []string{alpha, gamma, delta}, 1, [2]int{4, 3}, SimilarSimilarityLevel},
 		{"replacement costs one", []string{alpha, beta, gamma, delta}, []string{alpha, extra, gamma, delta}, 1, [2]int{4, 4}, SimilarSimilarityLevel},
 		{"combined edits", []string{alpha, beta, gamma, delta, epsilon, phi}, []string{alpha, extra, beta, changed, delta, phi}, 3, [2]int{6, 6}, SimilarSimilarityLevel},
-		{"total budget is not reset", []string{alpha, beta, gamma, delta, epsilon, phi, eta}, []string{alpha, extra, gamma, changed, epsilon, other, eta}, 2, [2]int{5, 5}, SimilarSimilarityLevel},
-		{"similar lines cost zero", []string{alpha, beta, gamma, delta}, []string{alpha, "bbbbbxbbbbbb", "cccccxcccccc", extra}, 1, [2]int{4, 4}, SimilarSimilarityLevel},
+		{"exact matches reset the budget", []string{alpha, beta, gamma, delta, epsilon, phi, eta}, []string{alpha, extra, gamma, changed, epsilon, other, eta}, 2, [2]int{7, 7}, SimilarSimilarityLevel},
+		{"single character changes cost one", []string{alpha, beta, gamma, delta}, []string{alpha, "bbbbbxbbbbbb", "cccccxcccccc", extra}, 1, [2]int{2, 2}, SimilarSimilarityLevel},
 		{"short peer", []string{alpha, beta, gamma, delta}, []string{alpha, beta}, 2, [2]int{4, 2}, SimilarSimilarityLevel},
 		{"short peer exceeds budget", []string{alpha, beta, gamma, delta, epsilon}, []string{alpha, beta}, 1, [2]int{3, 2}, SimilarSimilarityLevel},
 		{"strict mode", []string{alpha, beta, gamma, delta}, []string{alpha, extra, gamma, delta}, 0, [2]int{1, 1}, EqualSimilarityLevel},
+		{"strict mode rejects one character", []string{alpha, beta, gamma}, []string{alpha, "bbbbbbbbbbbx", gamma}, 0, [2]int{1, 1}, EqualSimilarityLevel},
+		{"four consecutive edits stop", []string{alpha, beta, gamma, delta, epsilon, phi}, []string{alpha, extra, changed, other, eta, phi}, 3, [2]int{4, 4}, SimilarSimilarityLevel},
+		{"three edits then reset", []string{alpha, beta, gamma, delta, epsilon, phi, eta}, []string{alpha, extra, changed, other, epsilon, other, eta}, 3, [2]int{7, 7}, SimilarSimilarityLevel},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			opts := &Options{MaxEditDistance: 2, MaxLineDistance: test.budget}
+			opts := &Options{MaxLineDistance: test.budget}
 			occs := []*FileOccurrence{lineEditOccurrence(t, "alpha", test.source, opts), lineEditOccurrence(t, "beta", test.peer, opts)}
 
 			level := expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
@@ -66,7 +69,7 @@ func TestExpandLineEdits(t *testing.T) { //nolint:gocognit // table checks endpo
 }
 
 func TestLineEditBudgetPerOccurrence(t *testing.T) {
-	opts := &Options{MaxEditDistance: 1, MaxLineDistance: 1}
+	opts := &Options{MaxLineDistance: 1}
 	source := []string{"aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc", "dddddddddddd"}
 	first := append([]string(nil), source...)
 	second := append([]string(nil), source...)
@@ -85,7 +88,7 @@ func TestLineEditBudgetPerOccurrence(t *testing.T) {
 }
 
 func TestLineEditIgnoredLinesAndMarkers(t *testing.T) {
-	opts := &Options{MaxEditDistance: 1, MaxLineDistance: 1, Flags: IgnoreBlankLinesFlag, IgnoreLineRegex: regexp.MustCompile("^ignored")}
+	opts := &Options{MaxLineDistance: 1, Flags: IgnoreBlankLinesFlag, IgnoreLineRegex: regexp.MustCompile("^ignored")}
 	alpha, beta, gamma := "aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"
 
 	occs := []*FileOccurrence{
@@ -125,13 +128,13 @@ func TestLineEditsAlwaysDifferent(t *testing.T) {
 	occs := []*FileOccurrence{lineEditOccurrence(t, "first", lines, opts), lineEditOccurrence(t, "second", lines, opts)}
 	expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
 
-	if occs[0].End != 3 || occs[1].End != 3 {
+	if occs[0].End != 5 || occs[1].End != 5 {
 		t.Fatal("always-different lines did not consume the line-edit budget")
 	}
 }
 
 func TestLineEditIgnoredSeed(t *testing.T) {
-	opts := &Options{MaxEditDistance: 1, MaxLineDistance: 1, IgnoreLineRegex: regexp.MustCompile("^a")}
+	opts := &Options{MaxLineDistance: 1, IgnoreLineRegex: regexp.MustCompile("^a")}
 	peer := lineEditOccurrence(t, "peer", []string{"aaaaaaaaaaaa", "baaaaaaaaaaa"}, opts)
 	needle := textToFileLine("baaaaaaaaaaa", opts)
 
@@ -190,7 +193,7 @@ func TestLineEditGroupAgainstFullMatrices(t *testing.T) { //nolint:gocognit // i
 	pool := []string{"aaaaaaaaaaaa", "aaaaabaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"}
 
 	for trial := 0; trial < 200; trial++ {
-		opts := &Options{MaxEditDistance: 1, MaxLineDistance: 1 + random.IntN(3)}
+		opts := &Options{MaxLineDistance: 1 + random.IntN(3)}
 
 		occs := make([]*FileOccurrence, 2+random.IntN(4))
 		for idx := range occs {
@@ -233,7 +236,7 @@ func TestLineEditGroupAgainstFullMatrices(t *testing.T) { //nolint:gocognit // i
 }
 
 func TestLineEditSameFileCopies(t *testing.T) {
-	opts := &Options{MaxEditDistance: 1, MaxLineDistance: 3}
+	opts := &Options{MaxLineDistance: 3}
 	block := []string{"aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc", "dddddddddddd"}
 	first := lineEditOccurrence(t, "same", append(append([]string(nil), block...), block...), opts)
 	second := &FileOccurrence{File: first.File, Start: 4, End: 5, fileToCheck: &fileToCheck{f: first.File}}
@@ -249,7 +252,7 @@ func TestLineAlignmentAgainstFullMatrix(t *testing.T) {
 	pool := []string{"aaaaaaaaaaaa", "aaaaabaaaaaa", "aaaaabbaaaaa", "bbbbbbbbbbbb", "cccccccccccc", "日本語の文字列", "\xff\xfe long invalid"}
 
 	for trial := 0; trial < 1000; trial++ {
-		opts := &Options{MaxEditDistance: 1, MaxLineDistance: 1 + random.IntN(4)}
+		opts := &Options{MaxLineDistance: 1 + random.IntN(4)}
 		opts.MinSimilarLines = 1 + random.IntN(10)
 
 		texts := make([][]string, 2)
@@ -275,55 +278,83 @@ func TestLineAlignmentAgainstFullMatrix(t *testing.T) {
 	}
 }
 
-// A full matrix, independent of the production band and lazy peer cursor.
-func referenceLineExpansion(occs []*FileOccurrence, opts *Options) ([2]int, SimilarityLevel) { //nolint:gocognit,cyclop // independent full-matrix reference with explicit boundaries
+// Enumerate all valid edit-run lengths in a complete matrix. Unlike production,
+// this retains dominated states and does not trim, stream, or lazily read input.
+func referenceLineExpansion(occs []*FileOccurrence, opts *Options) ([2]int, SimilarityLevel) { //nolint:gocognit,cyclop // independent exhaustive alignment oracle
+	type state struct {
+		run    int
+		edited bool
+	}
+
 	left, right := occs[0].File.lines[1:], occs[1].File.lines[1:]
-	cost := make([][]int, len(left)+1)
 
-	levels := make([][]SimilarityLevel, len(cost))
-	for row := range cost {
-		cost[row] = make([]int, len(right)+1)
-		levels[row] = make([]SimilarityLevel, len(right)+1)
-		cost[row][0], levels[row][0] = row, SimilarSimilarityLevel
+	cells := make([][]map[state]bool, len(left)+1)
+	for row := range cells {
+		cells[row] = make([]map[state]bool, len(right)+1)
 	}
 
-	for col := range cost[0] {
-		cost[0][col], levels[0][col] = col, SimilarSimilarityLevel
+	add := func(row int, column int, value state) {
+		if value.run > max(0, opts.MaxLineDistance) {
+			return
+		}
+
+		if cells[row][column] == nil {
+			cells[row][column] = map[state]bool{}
+		}
+
+		cells[row][column][value] = true
 	}
+	add(0, 0, state{})
 
-	levels[0][0] = EqualSimilarityLevel
-	ends, result := [2]int{1, 1}, EqualSimilarityLevel
+	for row := range cells {
+		for column := range cells[row] {
+			for value := range cells[row][column] {
+				edit := state{run: value.run + 1, edited: true}
+				if row < len(left) {
+					add(row+1, column, edit)
+				}
 
-	for row := 1; row <= len(left); row++ {
-		best, column, level := cost[row][0], 0, levels[row][0]
-		for col := 1; col <= len(right); col++ {
-			match := linesSimilarity(left[row-1], right[col-1], opts)
+				if column < len(right) {
+					add(row, column+1, edit)
+				}
 
-			penalty, diagonalLevel := 0, min(levels[row-1][col-1], match)
-			if match == differentSimilarityLevel {
-				penalty, diagonalLevel = 1, SimilarSimilarityLevel
-			}
-
-			cost[row][col], levels[row][col] = cost[row-1][col-1]+penalty, diagonalLevel
-			for _, alternative := range []int{cost[row-1][col] + 1, cost[row][col-1] + 1} {
-				if alternative < cost[row][col] {
-					cost[row][col], levels[row][col] = alternative, SimilarSimilarityLevel
+				if row < len(left) && column < len(right) {
+					if left[row].text == right[column].text && (left[row].flags|right[column].flags)&matchesAlwaysDifferentLineFlag == 0 {
+						add(row+1, column+1, state{edited: value.edited})
+					} else {
+						add(row+1, column+1, edit)
+					}
 				}
 			}
+		}
+	}
 
-			if value := cost[row][col]; value < best || value == best && levels[row][col] >= level {
-				best, column, level = value, col, levels[row][col]
+	ends, level := [2]int{1, 1}, EqualSimilarityLevel
+
+	for row := 1; row <= len(left); row++ {
+		best, selectedColumn, bestLevel := max(0, opts.MaxLineDistance)+1, 0, differentSimilarityLevel
+
+		for column, states := range cells[row] {
+			for value := range states {
+				candidateLevel := EqualSimilarityLevel
+				if value.edited {
+					candidateLevel = SimilarSimilarityLevel
+				}
+
+				if value.run < best || value.run == best && (candidateLevel > bestLevel || candidateLevel == bestLevel && column > selectedColumn) {
+					best, selectedColumn, bestLevel = value.run, column, candidateLevel
+				}
 			}
 		}
 
-		if best > opts.MaxLineDistance {
+		if best > max(0, opts.MaxLineDistance) {
 			break
 		}
 
-		ends, result = [2]int{row + 1, column + 1}, level
+		ends, level = [2]int{row + 1, selectedColumn + 1}, bestLevel
 	}
 
-	return ends, result
+	return ends, level
 }
 
 func TestFileSimilaritiesLineEdits(t *testing.T) {
@@ -334,7 +365,7 @@ func TestFileSimilaritiesLineEdits(t *testing.T) {
 
 	for _, budget := range []int{0, 1, 3} {
 		t.Run(fmt.Sprint(budget), func(t *testing.T) {
-			opts := &Options{MinSimilarLines: 10, MaxEditDistance: 1, MaxLineDistance: budget}
+			opts := &Options{MinSimilarLines: 10, MaxLineDistance: budget}
 			files := []*File{lineEditOccurrence(t, "alpha", lines, opts).File, lineEditOccurrence(t, "beta", peer, opts).File}
 			search := newLineSearch(files, opts)
 			indexed := &fileToCheck{f: files[0], inputs: files, search: search}
@@ -363,7 +394,7 @@ func TestSimilaritiesLineEdits(t *testing.T) {
 	peer = append(peer, "inserted inserted")
 	peer = append(peer, lines[3:]...)
 	files := []*File{newFile("first", strings.Join(lines, "\n")), newFile("second", strings.Join(peer, "\n"))}
-	opts := &Options{MinSimilarLines: 10, MaxEditDistance: 1, MaxLineDistance: 1}
+	opts := &Options{MinSimilarLines: 10, MaxLineDistance: 1}
 
 	sims, progress, err := Similarities(t.Context(), files, opts)
 	if err != nil {
@@ -391,10 +422,10 @@ func TestLineEditShortTailBoundary(t *testing.T) {
 		source = append(source, strings.Repeat(string(letter), 12))
 	}
 
-	for _, peerLines := range []int{6, 7} {
+	for _, peerLines := range []int{9, 10} {
 		t.Run(fmt.Sprint(peerLines), func(t *testing.T) {
 			files := []*File{newFile("first", strings.Join(source, "\n")), newFile("second", strings.Join(source[:peerLines], "\n"))}
-			opts := &Options{MinSimilarLines: 10, MaxEditDistance: 1, MaxLineDistance: 3}
+			opts := &Options{MinSimilarLines: 10, MaxLineDistance: 3}
 
 			sims, progress, err := Similarities(t.Context(), files, opts)
 			if err != nil {
@@ -405,9 +436,91 @@ func TestLineEditShortTailBoundary(t *testing.T) {
 
 			waitForAll(drainProgressChan(progress), func() { findings = readSimilaritiesChan(sims) })
 
-			if (len(findings) != 0) != (peerLines == 7) {
-				t.Fatal("short-suffix filtering changed the line-budget boundary")
+			if (len(findings) != 0) != (peerLines == 10) {
+				t.Fatal("minLines was not enforced for every occurrence")
 			}
 		})
+	}
+}
+
+func TestLineEditResetsAllowAccumulatedOffsets(t *testing.T) {
+	for _, reversed := range []bool{false, true} {
+		t.Run(fmt.Sprint(reversed), func(t *testing.T) {
+			short := []string{"seed"}
+			long := []string{"seed"}
+
+			for index := range 40 {
+				anchor := fmt.Sprintf("exact anchor %d", index)
+				short = append(short, anchor)
+				long = append(long, "inserted", anchor)
+			}
+
+			if reversed {
+				short, long = long, short
+			}
+
+			opts := &Options{MaxLineDistance: 1}
+			occs := []*FileOccurrence{lineEditOccurrence(t, "source", short, opts), lineEditOccurrence(t, "peer", long, opts)}
+
+			level := expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
+			if level != SimilarSimilarityLevel || occs[0].End != len(short) || occs[1].End != len(long) {
+				t.Fatal("a fixed diagonal band or total edit budget truncated repeated resets")
+			}
+		})
+	}
+}
+
+func TestIgnoredLinesDoNotResetEdits(t *testing.T) {
+	opts := &Options{MaxLineDistance: 1, IgnoreLineRegex: regexp.MustCompile("^ignored$")}
+	occs := []*FileOccurrence{
+		lineEditOccurrence(t, "source", []string{"seed", "first", "ignored", "second", "tail"}, opts),
+		lineEditOccurrence(t, "peer", []string{"seed", "First", "ignored", "Second", "tail"}, opts),
+	}
+	expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
+
+	if occs[0].End != 2 || occs[1].End != 2 {
+		t.Fatal("an ignored line reset the counter between two one-character changes")
+	}
+}
+
+func TestAlwaysDifferentLinesDoNotResetEdits(t *testing.T) {
+	opts := &Options{MaxLineDistance: 1, AlwaysDifferentLineRegex: regexp.MustCompile("^forced$")}
+	lines := []string{"seed", "forced", "forced", "tail"}
+	occs := []*FileOccurrence{lineEditOccurrence(t, "source", lines, opts), lineEditOccurrence(t, "peer", lines, opts)}
+	expandOccurrences(t.Context(), occs, EqualSimilarityLevel, opts)
+
+	if occs[0].End != 2 || occs[1].End != 2 {
+		t.Fatal("identical always-different lines reset the counter")
+	}
+}
+
+func TestMinLinesForEveryReportedGroup(t *testing.T) {
+	opts := &Options{MinSimilarLines: 3, MaxLineDistance: 1}
+	files := []*File{
+		newFile("long-a", "alpha\nbeta\ngamma\ndelta"),
+		newFile("long-b", "alpha\nbeta\ngamma\ndelta"),
+		newFile("short-a", "first\nsecond"),
+		newFile("short-b", "first\nsecond"),
+	}
+
+	sims, progress, err := Similarities(t.Context(), files, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var findings []*Similarity
+
+	waitForAll(drainProgressChan(progress), func() { findings = readSimilaritiesChan(sims) })
+
+	if len(findings) != 1 {
+		t.Fatalf("got %d groups, want only the group meeting minLines", len(findings))
+	}
+
+	for _, finding := range findings {
+		for _, occurrence := range finding.Occurrences {
+			if occurrence.End-occurrence.Start < opts.MinSimilarLines {
+				t.Fatal("reported an occurrence shorter than minLines")
+			}
+		}
 	}
 }

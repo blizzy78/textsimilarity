@@ -40,7 +40,7 @@ $ find . -type f -name '*\.go' -not \( -name '*_test.go' -o -name build.go -o -p
 	textsimilarity \
 		-fileList - \
 		-progress \
-		-ignoreWS -ignoreBlank -minLen 6 -minLines 10 -maxDist 3 \
+		-ignoreWS -ignoreBlank -minLen 6 -minLines 10 -maxLineDist 3 \
 		-ignoreRE '^[ \t]*(\*|//)' \
 		-alwaysDiffRE '^(package|import)' \
 		-diffTool 'icdiff --cols=150 --tabsize=4 --no-headers -W {{.File1}} {{.File2}}' \

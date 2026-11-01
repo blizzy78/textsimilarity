@@ -12,7 +12,7 @@ func TestLineSearchMatchesLinearSearch(t *testing.T) { //nolint:gocognit,cyclop 
 	pool := []string{"", "a", "alpha", "alphabet", "func main() {}", "const n = 1;", "# Heading", "Ordinary prose", "日本語の文字列", "é é 🚀", "\xff\xfe", strings.Repeat("x", 255), strings.Repeat("x", 256)}
 
 	for trial := 0; trial < 100; trial++ {
-		opts := &Options{MinSimilarLines: 4, MaxEditDistance: 1 + random.IntN(8)}
+		opts := &Options{MinSimilarLines: 4}
 
 		files := make([]*File, 3)
 		for idx := range files {
@@ -22,7 +22,7 @@ func TestLineSearchMatchesLinearSearch(t *testing.T) { //nolint:gocognit,cyclop 
 			}
 
 			files[idx] = newFile("input", strings.Join(lines, "\n")+"\n")
-			if err := files[idx].loadBuffered(opts, blockWidth(opts), make([]byte, 4096)); err != nil {
+			if err := files[idx].loadBuffered(opts, make([]byte, 4096)); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -63,25 +63,25 @@ func TestLineSearchMatchesLinearSearch(t *testing.T) { //nolint:gocognit,cyclop 
 	}
 }
 
-func TestPackedLengthsNeverRejectWithinLimit(t *testing.T) { //nolint:gocognit // exhaust every byte pair, lane, and supported threshold
-	for limit := uint64(1); limit <= 32; limit++ {
-		for left := uint64(0); left < 256; left++ {
-			for right := uint64(0); right < 256; right++ {
-				diff := int(left) - int(right)
-				if diff < -int(limit) || diff > int(limit) {
-					continue
-				}
+func TestLineSearchBroadExactMatch(t *testing.T) {
+	opts := &Options{}
 
-				for shift := uint(0); shift < 64; shift += 8 {
-					base := uint64(0x827fff0180fe00aa)
-					mask := uint64(255) << shift
+	file := newFile("repeated", strings.Repeat("exact\n", 5000))
+	if err := file.load(opts); err != nil {
+		t.Fatal(err)
+	}
 
-					a, b := base&^mask|left<<shift, base&^mask|right<<shift
-					if incompatibleLengths(a, b, limit) {
-						t.Fatalf("limit %d, lane %d: rejected %d/%d", limit, shift/8, left, right)
-					}
-				}
-			}
+	search := newLineSearch([]*File{file}, opts)
+
+	indexed := &fileToCheck{f: file, search: search}
+	for line := range 4999 {
+		indexed.setDone(line, true)
+	}
+
+	for range 100 {
+		got, level := lineIndex(t.Context(), indexed, textToFileLine("exact", opts), 0, opts)
+		if got != 4999 || level != EqualSimilarityLevel {
+			t.Fatal("broad lookup lost matches beyond the old query-cache limit")
 		}
 	}
 }

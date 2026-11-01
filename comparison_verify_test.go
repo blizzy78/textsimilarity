@@ -9,21 +9,14 @@ import (
 )
 
 // Opt-in verification of every root on the same external corpus as the benchmark.
-// The reference uses C's block filter and linear line search. Compare before
+// The reference uses linear exact-line search. Compare before
 // deduplication, whose first-arriving level was already scheduling dependent.
 func TestComparisonCorpusEquivalence(t *testing.T) {
 	names, texts := readComparisonCorpus(t)
 	opts := &Options{MinSimilarLines: 10}
 	files := loadComparisonCorpus(t, names, texts, opts)
-	prepareComparisonCorpus(files, opts)
 
-	search, blocks := newLineSearch(files, opts), newAnchorSearch(files, opts)
-	if search == nil || blocks == nil {
-		t.Fatal("corpus exceeds indexed comparison bounds")
-	}
-
-	search.blocks = blocks
-	reference := newBlockSearch(files, opts)
+	search := newLineSearch(files, opts)
 
 	var (
 		next    atomic.Uint32
@@ -37,8 +30,8 @@ func TestComparisonCorpusEquivalence(t *testing.T) {
 					return
 				}
 
-				indexed := &fileToCheck{f: files[idx], inputs: files, fileID: idx, search: search, blocks: blocks}
-				linear := &fileToCheck{f: files[idx], inputs: files, fileID: idx, blocks: reference}
+				indexed := &fileToCheck{f: files[idx], inputs: files, fileID: idx, search: search}
+				linear := &fileToCheck{f: files[idx], inputs: files, fileID: idx}
 				got := scanRecords(fileSimilarities(t.Context(), indexed, opts))
 
 				want := scanRecords(fileSimilarities(t.Context(), linear, opts))

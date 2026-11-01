@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"strings"
-	"sync"
 	"testing"
 
 	tsio "github.com/blizzy78/textsimilarity/internal/io"
@@ -59,24 +58,5 @@ func TestFileLoadingNoProgress(t *testing.T) {
 	file := &File{R: emptyReader{}}
 	if err := file.load(&Options{}); !errors.Is(err, io.ErrNoProgress) {
 		t.Fatalf("got %v, want ErrNoProgress", err)
-	}
-}
-
-func TestConcurrentLineDecoding(t *testing.T) {
-	line := textToFileLine("Go, TypeScript, Markdown, 日本語, é 🚀", &Options{})
-
-	var group sync.WaitGroup
-
-	results := make([]*lineText, 32)
-	for idx := range results {
-		group.Go(func() { results[idx] = line.textData() })
-	}
-
-	group.Wait()
-
-	for _, result := range results {
-		if result != results[0] || string(result.runes) != line.text {
-			t.Fatal("inconsistent concurrent decoding")
-		}
 	}
 }

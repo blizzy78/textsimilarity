@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/bits"
 	"regexp"
 	"runtime"
 	"slices"
@@ -15,7 +14,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/blizzy78/textsimilarity/levenshtein"
 	"github.com/dropbox/godropbox/container/bitvector"
 )
 
@@ -38,10 +36,7 @@ const (
 	EqualSimilarityLevel
 )
 
-// DefaultMaxEditDistance is the Levenshtein distance used when Options.MaxEditDistance <= 0.
-const DefaultMaxEditDistance = 5
-
-// DefaultMaxLineDistance is the CLI's default line-edit budget for an occurrence.
+// DefaultMaxLineDistance is the CLI's default consecutive line-edit limit.
 const DefaultMaxLineDistance = 3
 
 const (
@@ -63,17 +58,14 @@ type Options struct {
 	// MinLineLength is the minimum length of a line to be considered (in runes.) Lines shorter than that will be ignored.
 	MinLineLength int
 
-	// MinSimilarLines is the minimum number of lines a similarity between files must have. Similarities with
-	// fewer lines will not be reported.
+	// MinSimilarLines is the minimum line span of every occurrence in a reported
+	// similarity group. Groups containing a shorter occurrence will not be reported.
 	MinSimilarLines int
 
-	// MaxEditDistance is the maximum Levenshtein distance between similar lines that will be considered "similar."
-	// Lines that have a larger distance between them will be considered different.
-	MaxEditDistance int
-
-	// MaxLineDistance limits line insertions, deletions, and replacements in each
-	// occurrence relative to the source occurrence used during expansion. Lines considered similar by
-	// MaxEditDistance cost zero. Nonpositive values retain strict expansion.
+	// MaxLineDistance limits consecutive line insertions, deletions, and replacements
+	// relative to the source occurrence. Every unequal line costs one edit. An exact
+	// match resets the counter; ignored lines neither cost an edit nor reset it.
+	// Each peer has its own counter. Nonpositive values require exact matches.
 	MaxLineDistance int
 
 	// IgnoreLineRegex, if set, is an expression that a line must match to be ignored. Note that leading/trailing
@@ -151,57 +143,15 @@ type fileToCheck struct {
 	peers     []*fileToCheck
 	peerCache map[int]*fileToCheck
 	inputs    []*File
-	blocks    *blockSearch
 	search    *lineSearch
 	fileID    int
 }
 
 // A fileLine is a single line of text in a file.
 type fileLine struct {
-	text                 string
-	length               int
-	flags                Flag
-	bucket, lower, upper byte
-	groupID              uint32
-	decoded              atomic.Pointer[lineText]
-}
-
-type lineText struct {
-	once            sync.Once
-	runes           []rune
-	mask, low, high uint64
-}
-
-func (line *fileLine) textData() *lineText {
-	data := line.decoded.Load()
-	if data == nil {
-		candidate := &lineText{}
-		if line.decoded.CompareAndSwap(nil, candidate) {
-			data = candidate
-		} else {
-			data = line.decoded.Load()
-		}
-	}
-
-	data.once.Do(func() {
-		data.runes = []rune(line.text)
-
-		// Each bin counts runes modulo four. Gray coding makes an insertion or
-		// deletion flip one bit, and a substitution at most two bits. Hash
-		// collisions can only weaken this necessary edit-distance bound.
-		var low, high uint64
-
-		for _, char := range data.runes {
-			bit := uint64(1) << uint32(char&63)
-			data.mask |= bit
-			high ^= low & bit
-			low ^= bit
-		}
-
-		data.low, data.high = low^high, high
-	})
-
-	return data
+	text   string
+	length int
+	flags  Flag
 }
 
 // A bitVector is a compact set of bits.
@@ -220,17 +170,11 @@ var intSlicePool = sync.Pool{
 // will be sent into the returned channel. Progress is reported via the returned progress channel.
 // Both channels must be drained by the caller.
 func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Similarity, <-chan Progress, error) {
-	totalLines := 0
-
-	width := blockWidth(opts)
-
 	buffer := make([]byte, 32*1024)
 	for _, f := range files {
-		if err := f.loadBuffered(opts, width, buffer); err != nil {
+		if err := f.loadBuffered(opts, buffer); err != nil {
 			return nil, nil, err
 		}
-
-		totalLines += len(f.lines)
 	}
 
 	sims, progress := similaritiesLoaded(ctx, files, opts)
@@ -238,35 +182,12 @@ func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Si
 	return sims, progress, nil
 }
 
-func similaritiesLoaded(ctx context.Context, files []*File, opts *Options) (<-chan *Similarity, <-chan Progress) { //nolint:gocognit,cyclop // concurrent scan and result delivery
-	var (
-		blocks      *blockSearch
-		preparation sync.WaitGroup
-	)
-	preparation.Go(func() { blocks = newAnchorSearch(files, opts) })
-
+func similaritiesLoaded(ctx context.Context, files []*File, opts *Options) (<-chan *Similarity, <-chan Progress) { //nolint:gocognit,cyclop // concurrent scanning, deduplication, progress, and result delivery
 	search := newLineSearch(files, opts)
-
-	preparation.Wait()
-
-	switch {
-	case opts.MaxLineDistance > 0:
-		// Line lookups remain valid, but fixed-position block filters do not.
-		blocks = nil
-
-		if search != nil && opts.MinSimilarLines-opts.MaxLineDistance > 1 {
-			search.shortTails = &blockSearch{files: files, tails: tailSeeds(files, opts.MinSimilarLines-opts.MaxLineDistance-1)}
-		}
-	case search != nil && blocks != nil:
-		search.blocks = blocks
-	default:
-		blocks = newBlockSearch(files, opts)
-		search = nil
-	}
 
 	filesToCheck := make([]*fileToCheck, len(files))
 	for idx, file := range files {
-		filesToCheck[idx] = &fileToCheck{f: file, inputs: files, blocks: blocks, search: search, fileID: idx}
+		filesToCheck[idx] = &fileToCheck{f: file, inputs: files, search: search, fileID: idx}
 	}
 
 	grp := sync.WaitGroup{}
@@ -375,11 +296,7 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 			continue
 		}
 
-		if opts.MaxLineDistance > 0 && len(file.f.lines)-fileLineIdx < opts.MinSimilarLines {
-			continue
-		}
-
-		if !file.blocks.possible(ctx, file, fileLineIdx, opts) {
+		if len(file.f.lines)-fileLineIdx < opts.MinSimilarLines {
 			continue
 		}
 
@@ -394,20 +311,14 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 
 		var peerIDs []int
 
-		if file.search != nil && file.search.hasIndex(line) {
-			if file.search.matchesShortTail(ctx, file, fileLineIdx, opts) {
+		if file.search != nil {
+			query := file.search.query(line)
+			if query.hasShortOccurrence(ctx, file, fileLineIdx) {
 				continue
 			}
 
-			query := file.search.query(ctx, line, opts)
-			if !query.fallback {
-				if !canExpandAllSeeds(ctx, file, fileLineIdx, query, opts) {
-					continue
-				}
-
-				peerIDs = query.files
-				peerCount = len(peerIDs)
-			}
+			peerIDs = query.files
+			peerCount = len(peerIDs)
 		}
 
 		for peerIndex := 0; peerIndex < peerCount; peerIndex++ {
@@ -433,7 +344,7 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 					continue
 				}
 
-				if !canReachMinimum(ctx, file, fileLineIdx, peerFile, first, opts) {
+				if len(peerFile.f.lines)-first < opts.MinSimilarLines || !canReachMinimum(ctx, file, fileLineIdx, peerFile, first, opts) {
 					tooShort = true
 					break
 				}
@@ -471,7 +382,11 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 
 		// The first occurrence is always retained by overlap filtering. Reject
 		// short matches before building that filter, resetting every touched range.
-		if occurrences[0].End-occurrences[0].Start < opts.MinSimilarLines {
+		for _, occ := range occurrences {
+			tooShort = tooShort || occ.End-occ.Start < opts.MinSimilarLines
+		}
+
+		if tooShort {
 			// reset lines done
 			for _, occ := range occurrences {
 				for l := occ.Start; l < occ.End; l++ {
@@ -537,7 +452,7 @@ func canReachMinimum(ctx context.Context, source *fileToCheck, sourceStart int, 
 		left := nextAcceptedLine(ctx, source, sourceEnd, opts)
 
 		right := nextAcceptedLine(ctx, peer, peerEnd, opts)
-		if left < 0 || right < 0 || source.compare(source.f.lines[left], peer.f.lines[right], opts) == differentSimilarityLevel {
+		if left < 0 || right < 0 || linesSimilarity(source.f.lines[left], peer.f.lines[right]) == differentSimilarityLevel {
 			return false
 		}
 
@@ -657,7 +572,7 @@ func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level Simila
 
 			line2 := occ2.fileToCheck.f.lines[ends[idx2]-1]
 
-			lineLevel := occs[0].fileToCheck.compare(line1, line2, opts)
+			lineLevel := linesSimilarity(line1, line2)
 			if lineLevel == differentSimilarityLevel {
 				return level
 			}
@@ -742,10 +657,10 @@ func acceptLine(line *fileLine, opts *Options) bool {
 	return true
 }
 
-// lineIndexEnd returns the line index and similarity level of needle in file, starting with startLine,
-// ending with endLine (excluding), according to opts. If no match can be found, -1 is returned for the line index.
+// lineIndex returns the line index and similarity level of needle in file, starting with startLine,
+// according to opts. If no match can be found, -1 is returned for the line index.
 func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLine int, opts *Options) (int, SimilarityLevel) {
-	if file.search != nil && file.search.hasIndex(needle) {
+	if file.search != nil {
 		return file.search.find(ctx, file, needle, startLine, opts)
 	}
 
@@ -768,11 +683,11 @@ func linearLineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, s
 			continue
 		}
 
-		if opts.MaxLineDistance > 0 && !acceptLine(file.f.lines[lineIdx], opts) {
+		if !acceptLine(file.f.lines[lineIdx], opts) {
 			continue
 		}
 
-		level := linesSimilarity(file.f.lines[lineIdx], needle, opts)
+		level := linesSimilarity(file.f.lines[lineIdx], needle)
 		if level == differentSimilarityLevel {
 			continue
 		}
@@ -782,7 +697,7 @@ func linearLineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, s
 }
 
 // linesSimilarity returns the similarity level between fileLine1 and fileLine2, according to opts.
-func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) SimilarityLevel {
+func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine) SimilarityLevel {
 	if (fileLine1.flags|fileLine2.flags)&matchesAlwaysDifferentLineFlag != 0 {
 		return differentSimilarityLevel
 	}
@@ -791,55 +706,13 @@ func linesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) Si
 		return EqualSimilarityLevel
 	}
 
-	return differentLinesSimilarity(fileLine1, fileLine2, opts)
-}
-
-// differentLinesSimilarity classifies lines whose text is not exactly equal.
-func differentLinesSimilarity(fileLine1 *fileLine, fileLine2 *fileLine, opts *Options) SimilarityLevel {
-	lenDiff := fileLine1.length - fileLine2.length
-	if lenDiff < 0 {
-		lenDiff = -lenDiff
-	}
-
-	maxDist := opts.MaxEditDistance
-	if maxDist <= 0 {
-		maxDist = DefaultMaxEditDistance
-	}
-
-	if lenDiff > maxDist {
-		return differentSimilarityLevel
-	}
-
-	if max(fileLine1.length, fileLine2.length) <= maxDist {
-		return SimilarSimilarityLevel
-	}
-
-	left, right := fileLine1.textData(), fileLine2.textData()
-
-	changes := bits.OnesCount64(left.low^right.low) + bits.OnesCount64(left.high^right.high)
-	if (changes+1)/2 > maxDist {
-		return differentSimilarityLevel
-	}
-
-	// Each distinct rune absent from the other line requires at least one
-	// edit. A substitution can fix one missing rune on each side, so test
-	// the sides separately rather than adding their counts.
-	if bits.OnesCount64(left.mask&^right.mask) > maxDist ||
-		bits.OnesCount64(right.mask&^left.mask) > maxDist {
-		return differentSimilarityLevel
-	}
-
-	if !levenshtein.WithinDistance(left.runes, right.runes, maxDist) {
-		return differentSimilarityLevel
-	}
-
-	return SimilarSimilarityLevel
+	return differentSimilarityLevel
 }
 
 // load loads all lines from f, and sets up f accordingly, such as setting flags.
-func (f *File) load(opts *Options) error { return f.loadBuffered(opts, 0, make([]byte, 32*1024)) }
+func (f *File) load(opts *Options) error { return f.loadBuffered(opts, make([]byte, 32*1024)) }
 
-func (f *File) loadBuffered(opts *Options, width int, buffer []byte) error {
+func (f *File) loadBuffered(opts *Options, buffer []byte) error {
 	f.lines = nil
 
 	var builder strings.Builder
@@ -873,32 +746,10 @@ func (f *File) loadBuffered(opts *Options, width int, buffer []byte) error {
 		line := &values[idx]
 		line.fillHeader(value, opts)
 
-		if width > 0 {
-			line.prepareLengthBuckets(width)
-		}
-
 		f.lines[idx] = line
 	}
 
 	return nil
-}
-
-func (line *fileLine) prepareLengthBuckets(width int) {
-	// A radius of width/2 crosses at most one neighboring bucket.
-	// Wrapping to eight bits can add candidates, never remove them.
-	base, remainder := line.length/width, line.length%width
-	limit := width / 2
-	line.bucket = byte(base & 255)
-
-	line.lower = line.bucket
-	if remainder < limit {
-		line.lower--
-	}
-
-	line.upper = line.bucket
-	if remainder+limit >= width {
-		line.upper++
-	}
 }
 
 type progressReader struct {
@@ -1053,13 +904,6 @@ func contextDone(ctx context.Context) bool {
 
 func (f *fileToCheck) isDone(line int) bool { return f.linesDone != nil && f.linesDone.isSet(line) }
 
-func (f *fileToCheck) compare(left *fileLine, right *fileLine, opts *Options) SimilarityLevel {
-	if f.search != nil {
-		return f.search.compare(left, right, opts)
-	}
-
-	return linesSimilarity(left, right, opts)
-}
 func (f *fileToCheck) setDone(line int, done bool) {
 	if f.linesDone == nil {
 		if !done {

@@ -37,6 +37,10 @@ func TestMaxLineDistanceOption(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			if flag.Lookup("maxDist") != nil {
+				t.Fatal("obsolete maxDist flag is still registered")
+			}
+
 			if opts.simOpts.MaxLineDistance != test.want {
 				t.Fatalf("line distance: got %d, want %d", opts.simOpts.MaxLineDistance, test.want)
 			}

@@ -87,9 +87,9 @@ func FuzzFileSimilarities(f *testing.F) { //nolint:gocognit,cyclop // test code
 		defer cancel()
 
 		opts := &Options{
-			MaxEditDistance: 2,
 			MinLineLength:   minLineLength,
 			MinSimilarLines: minSimilarLines,
+			MaxLineDistance: max(0, splitIdx) % 4,
 		}
 
 		if ignoreWS {

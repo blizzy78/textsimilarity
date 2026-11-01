@@ -63,7 +63,7 @@ func TestMinimumProbeNecessary(t *testing.T) { //nolint:gocognit,cyclop // compa
 	texts := []string{"", " ", "alpha", "alpha!", "beta", "ignore", "🚀", "𨊂", "gamma"}
 
 	for range 2000 {
-		opts := &Options{MinSimilarLines: 2 + random.IntN(8), MaxEditDistance: 1 + random.IntN(3)}
+		opts := &Options{MinSimilarLines: 2 + random.IntN(8), MaxLineDistance: random.IntN(4)}
 		if random.IntN(2) == 0 {
 			opts.Flags |= IgnoreBlankLinesFlag
 		}

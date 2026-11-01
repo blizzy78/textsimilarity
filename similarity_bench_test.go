@@ -19,7 +19,7 @@ func BenchmarkLineIndex(b *testing.B) {
 
 	needle := newFileLine("aaaaaaaaaa", false)
 
-	opts := Options{MaxEditDistance: 2}
+	opts := Options{}
 
 	ctx := context.Background()
 
@@ -35,7 +35,7 @@ func BenchmarkLineIndex_Large(b *testing.B) {
 
 	file, needle := newLargeLineIndexFixture(b)
 
-	opts := Options{MaxEditDistance: 2}
+	opts := Options{}
 
 	ctx := context.Background()
 

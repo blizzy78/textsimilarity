@@ -3,6 +3,8 @@ package textsimilarity
 import (
 	"context"
 	"math/bits"
+	"sync"
+	"sync/atomic"
 )
 
 type blockLocation struct {
@@ -20,16 +22,20 @@ type terminalGroup struct {
 // Quantization and hashing only add candidates; complete matching still decides.
 // Each Similarities call rebuilds it in memory from the supplied readers.
 type blockSearch struct {
-	files     []*File
-	span      int
-	positions [4]int
-	keys      []uint32
-	heads     []uint32
-	locations []blockLocation
-	shift     uint
-	lengths   [][]int32
-	ends      []terminalGroup
-	maxEnd    int
+	files       []*File
+	span        int
+	positions   [4]int
+	keys        []uint32
+	heads       []uint32
+	locations   []blockLocation
+	shift       uint
+	lengths     [][]int32
+	ends        []terminalGroup
+	maxEnd      int
+	dead        [][]atomic.Uint32
+	tree        *windowTree
+	tails       map[int][]tailSeed
+	tailQueries sync.Map
 }
 
 func blockWidth(opts *Options) int {
@@ -135,12 +141,20 @@ func (index *blockSearch) possible(ctx context.Context, source *fileToCheck, sta
 		return false
 	}
 
+	if index.dead != nil && index.dead[source.fileID][start].Load() != 0 {
+		return false
+	}
+
 	limit := opts.MaxEditDistance
 	if limit <= 0 {
 		limit = DefaultMaxEditDistance
 	}
 
 	if index.matchesEnd(source, start, limit, opts) {
+		return false
+	}
+
+	if index.matchesWitness(source, start, limit, opts) || index.matchesTail(ctx, source, start, limit, opts) {
 		return false
 	}
 
@@ -153,6 +167,10 @@ func (index *blockSearch) possible(ctx context.Context, source *fileToCheck, sta
 		}
 
 		sourceLengths[offset] = int32(line.length) //nolint:gosec // index construction validated every length
+	}
+
+	if index.tree != nil {
+		return index.tree.possible(ctx, index, source, start, limit, opts)
 	}
 
 	var lower, upper [4]byte
@@ -205,7 +223,7 @@ func (index *blockSearch) matchesEnd(source *fileToCheck, start int, limit int, 
 	}
 
 	for _, group := range index.ends {
-		if linesSimilarity(needle, group.line, opts) == differentSimilarityLevel {
+		if source.compare(needle, group.line, opts) == differentSimilarityLevel {
 			continue
 		}
 
@@ -245,10 +263,49 @@ func (index *blockSearch) matchesBlock(source *fileToCheck, start int, location 
 
 	peerStart := int(location.line)
 	for offset := 0; offset < index.span; offset++ {
-		if source.peerDone(int(location.file), peerStart+offset) || linesSimilarity(source.f.lines[start+offset], peer.lines[peerStart+offset], opts) == differentSimilarityLevel {
+		if source.peerDone(int(location.file), peerStart+offset) || source.compare(source.f.lines[start+offset], peer.lines[peerStart+offset], opts) == differentSimilarityLevel {
 			return false
 		}
 	}
 
 	return true
+}
+
+func (index *blockSearch) matchesWitness(source *fileToCheck, start int, limit int, opts *Options) bool {
+	if source.search == nil {
+		return false
+	}
+
+	prepared := source.search.prepared(source.f.lines[start])
+	if prepared == nil {
+		return false
+	}
+
+	for part, pos := range prepared.witnesses {
+		if index.witnessContradicts(source, start, pos, (part+1)/2, limit, opts) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (index *blockSearch) witnessContradicts(source *fileToCheck, start int, position uint64, offset int, limit int, opts *Options) bool {
+	fileID, line := int(position>>32), int(position&0xffffffff)
+	if index.files[fileID] == source.f && line <= start || source.peerDone(fileID, line) {
+		return false
+	}
+
+	peer := index.files[fileID]
+	if len(peer.lines)-line < index.span {
+		return true
+	}
+
+	if offset == 0 {
+		return false
+	}
+
+	diff := source.f.lines[start+offset].length - peer.lines[line+offset].length
+
+	return diff > limit || diff < -limit || source.compare(source.f.lines[start+offset], peer.lines[line+offset], opts) == differentSimilarityLevel
 }

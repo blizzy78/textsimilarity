@@ -7,6 +7,7 @@ import (
 	"math/bits"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -139,9 +140,12 @@ type fileToCheck struct {
 	linesDone *bitVector
 
 	// peers are all the files this file needs to be checked against, including itself.
-	peers  []*fileToCheck
-	inputs []*File
-	blocks *blockSearch
+	peers     []*fileToCheck
+	peerCache map[int]*fileToCheck
+	inputs    []*File
+	blocks    *blockSearch
+	search    *lineSearch
+	fileID    int
 }
 
 // A fileLine is a single line of text in a file.
@@ -150,6 +154,7 @@ type fileLine struct {
 	length               int
 	flags                Flag
 	bucket, lower, upper byte
+	groupID              uint32
 	decoded              atomic.Pointer[lineText]
 }
 
@@ -206,7 +211,7 @@ var intSlicePool = sync.Pool{
 // Similarities scans files for similarities between them, according to opts. Detected similarities
 // will be sent into the returned channel. Progress is reported via the returned progress channel.
 // Both channels must be drained by the caller.
-func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Similarity, <-chan Progress, error) { //nolint:gocognit,cyclop // it's complicated
+func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Similarity, <-chan Progress, error) {
 	totalLines := 0
 
 	width := blockWidth(opts)
@@ -220,19 +225,39 @@ func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Si
 		totalLines += len(f.lines)
 	}
 
-	blocks := newBlockSearch(files, opts)
+	sims, progress := similaritiesLoaded(ctx, files, opts)
+
+	return sims, progress, nil
+}
+
+func similaritiesLoaded(ctx context.Context, files []*File, opts *Options) (<-chan *Similarity, <-chan Progress) { //nolint:gocognit,cyclop // concurrent scan and result delivery
+	var (
+		blocks      *blockSearch
+		preparation sync.WaitGroup
+	)
+	preparation.Go(func() { blocks = newAnchorSearch(files, opts) })
+
+	search := newLineSearch(files, opts)
+
+	preparation.Wait()
+
+	if search != nil && blocks != nil {
+		search.blocks = blocks
+	} else {
+		blocks = newBlockSearch(files, opts)
+		search = nil
+	}
 
 	filesToCheck := make([]*fileToCheck, len(files))
 	for idx, file := range files {
-		filesToCheck[idx] = &fileToCheck{f: file, inputs: files, blocks: blocks}
+		filesToCheck[idx] = &fileToCheck{f: file, inputs: files, blocks: blocks, search: search, fileID: idx}
 	}
 
 	grp := sync.WaitGroup{}
-	simsCh := make(chan *Similarity)
+	simsCh := make(chan *Similarity, 64)
 	progressCh := make(chan Progress)
 	filesDone := int32(0)
 	startTime := time.Now()
-	semaphore := make(chan struct{}, runtime.NumCPU()+2)
 
 	advanceAndSendProgress := func(file *File) {
 		if contextDone(ctx) {
@@ -252,29 +277,29 @@ func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Si
 		}
 	}
 
-	for _, file := range filesToCheck {
-		grp.Add(1)
+	slices.SortFunc(filesToCheck, func(left *fileToCheck, right *fileToCheck) int {
+		return len(right.f.lines) - len(left.f.lines)
+	})
 
-		go func(file *fileToCheck) {
-			defer grp.Done()
+	var next atomic.Uint32
 
-			semaphore <- struct{}{}
+	for worker := 0; worker < min(len(filesToCheck), 2*runtime.GOMAXPROCS(0)); worker++ {
+		grp.Go(func() {
+			for {
+				idx := int(next.Add(1)) - 1
+				if idx >= len(filesToCheck) || contextDone(ctx) {
+					return
+				}
 
-			defer func() {
-				<-semaphore
-			}()
+				file := filesToCheck[idx]
+				sims := fileSimilarities(ctx, file, opts)
+				advanceAndSendProgress(file.f)
 
-			if contextDone(ctx) {
-				return
+				for _, sim := range sims {
+					simsCh <- sim
+				}
 			}
-
-			defer advanceAndSendProgress(file.f)
-
-			sims := fileSimilarities(ctx, file, opts)
-			for _, sim := range sims {
-				simsCh <- sim
-			}
-		}(file)
+		})
 	}
 
 	go func() {
@@ -296,25 +321,20 @@ func Similarities(ctx context.Context, files []*File, opts *Options) (<-chan *Si
 			}
 		}()
 
-		distinctSims := []*Similarity{}
+		distinctSims := newSimilaritySet(files)
 
-	channel:
 		for sim := range simsCh {
 			sortOccurrences(sim.Occurrences)
 
-			for _, dsim := range distinctSims {
-				if equalSimilarities(sim, dsim) {
-					continue channel
-				}
+			if !distinctSims.add(sim) {
+				continue
 			}
-
-			distinctSims = append(distinctSims, sim)
 
 			outCh <- sim
 		}
 	}()
 
-	return outCh, progressCh, nil
+	return outCh, progressCh
 }
 
 // fileSimilarities returns all similarities between file and its peers, according to opts.
@@ -352,7 +372,24 @@ func fileSimilarities(ctx context.Context, file *fileToCheck, opts *Options) []*
 			peerCount = len(file.inputs)
 		}
 
-		for peerID := 0; peerID < peerCount; peerID++ {
+		var peerIDs []int
+
+		if file.search != nil && file.search.hasIndex(line) {
+			query := file.search.query(ctx, line, opts)
+			if !canExpandAllSeeds(ctx, file, fileLineIdx, query, opts) {
+				continue
+			}
+
+			peerIDs = query.files
+			peerCount = len(peerIDs)
+		}
+
+		for peerIndex := 0; peerIndex < peerCount; peerIndex++ {
+			peerID := peerIndex
+			if peerIDs != nil {
+				peerID = peerIDs[peerIndex]
+			}
+
 			peerFile := file.peerAt(peerID)
 
 			if contextDone(ctx) {
@@ -470,7 +507,7 @@ func canReachMinimum(ctx context.Context, source *fileToCheck, sourceStart int, 
 		left := nextAcceptedLine(ctx, source, sourceEnd, opts)
 
 		right := nextAcceptedLine(ctx, peer, peerEnd, opts)
-		if left < 0 || right < 0 || linesSimilarity(source.f.lines[left], peer.f.lines[right], opts) == differentSimilarityLevel {
+		if left < 0 || right < 0 || source.compare(source.f.lines[left], peer.f.lines[right], opts) == differentSimilarityLevel {
 			return false
 		}
 
@@ -586,7 +623,7 @@ func expandOccurrences(ctx context.Context, occs []*FileOccurrence, level Simila
 
 			line2 := occ2.fileToCheck.f.lines[ends[idx2]-1]
 
-			lineLevel := linesSimilarity(line1, line2, opts)
+			lineLevel := occs[0].fileToCheck.compare(line1, line2, opts)
 			if lineLevel == differentSimilarityLevel {
 				return level
 			}
@@ -674,6 +711,10 @@ func acceptLine(line *fileLine, opts *Options) bool {
 // lineIndexEnd returns the line index and similarity level of needle in file, starting with startLine,
 // ending with endLine (excluding), according to opts. If no match can be found, -1 is returned for the line index.
 func lineIndex(ctx context.Context, file *fileToCheck, needle *fileLine, startLine int, opts *Options) (int, SimilarityLevel) {
+	if file.search != nil && file.search.hasIndex(needle) {
+		return file.search.find(ctx, file, needle, startLine, opts)
+	}
+
 	endLine := len(file.f.lines)
 
 	for lineIdx := startLine; ; lineIdx++ {
@@ -791,27 +832,31 @@ func (f *File) loadBuffered(opts *Options, width int, buffer []byte) error {
 		line.fillHeader(value, opts)
 
 		if width > 0 {
-			// A radius of width/2 crosses at most one neighboring bucket.
-			// Wrapping to eight bits can add candidates, never remove them.
-			base, remainder := line.length/width, line.length%width
-			limit := width / 2
-			line.bucket = byte(base & 255)
-
-			line.lower = line.bucket
-			if remainder < limit {
-				line.lower--
-			}
-
-			line.upper = line.bucket
-			if remainder+limit >= width {
-				line.upper++
-			}
+			line.prepareLengthBuckets(width)
 		}
 
 		f.lines[idx] = line
 	}
 
 	return nil
+}
+
+func (line *fileLine) prepareLengthBuckets(width int) {
+	// A radius of width/2 crosses at most one neighboring bucket.
+	// Wrapping to eight bits can add candidates, never remove them.
+	base, remainder := line.length/width, line.length%width
+	limit := width / 2
+	line.bucket = byte(base & 255)
+
+	line.lower = line.bucket
+	if remainder < limit {
+		line.lower--
+	}
+
+	line.upper = line.bucket
+	if remainder+limit >= width {
+		line.upper++
+	}
 }
 
 type progressReader struct {
@@ -965,6 +1010,14 @@ func contextDone(ctx context.Context) bool {
 }
 
 func (f *fileToCheck) isDone(line int) bool { return f.linesDone != nil && f.linesDone.isSet(line) }
+
+func (f *fileToCheck) compare(left *fileLine, right *fileLine, opts *Options) SimilarityLevel {
+	if f.search != nil {
+		return f.search.compare(left, right, opts)
+	}
+
+	return linesSimilarity(left, right, opts)
+}
 func (f *fileToCheck) setDone(line int, done bool) {
 	if f.linesDone == nil {
 		if !done {
@@ -977,16 +1030,35 @@ func (f *fileToCheck) setDone(line int, done bool) {
 	f.linesDone.set(line, done)
 }
 func (f *fileToCheck) peerAt(index int) *fileToCheck {
+	if f.inputs != nil {
+		if f.peerCache == nil {
+			f.peerCache = map[int]*fileToCheck{}
+		}
+
+		peer := f.peerCache[index]
+		if peer == nil {
+			peer = &fileToCheck{f: f.inputs[index], search: f.search, fileID: index}
+			f.peerCache[index] = peer
+		}
+
+		return peer
+	}
+
 	if f.peers == nil {
 		f.peers = make([]*fileToCheck, len(f.inputs))
 	}
 
 	if f.peers[index] == nil {
-		f.peers[index] = &fileToCheck{f: f.inputs[index]}
+		f.peers[index] = &fileToCheck{f: f.inputs[index], search: f.search, fileID: index}
 	}
 
 	return f.peers[index]
 }
 func (f *fileToCheck) peerDone(file int, line int) bool {
+	if f.peerCache != nil {
+		peer := f.peerCache[file]
+		return peer != nil && peer.isDone(line)
+	}
+
 	return f.peers != nil && f.peers[file] != nil && f.peers[file].isDone(line)
 }

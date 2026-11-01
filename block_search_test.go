@@ -34,17 +34,25 @@ func TestBlockSearchNeverRejectsReportableGroup(t *testing.T) { //nolint:gocogni
 			}
 		}
 
-		index := newBlockSearch(files, opts)
+		search := newLineSearch(files, opts)
+
+		index := newAnchorSearch(files, opts)
+		if trial%2 == 0 {
+			index = newBlockSearch(files, opts)
+		}
+
 		if index == nil {
 			t.Fatal("eligible corpus did not build an in-memory filter")
 		}
 
+		search.blocks = index
+
 		fileID := random.IntN(len(files))
 		start := random.IntN(len(files[fileID].lines))
 
-		source := &fileToCheck{f: files[fileID], linesDone: newBitVector(len(files[fileID].lines)), peers: make([]*fileToCheck, len(files))}
+		source := &fileToCheck{f: files[fileID], linesDone: newBitVector(len(files[fileID].lines)), peers: make([]*fileToCheck, len(files)), search: search, fileID: fileID}
 		for idx, file := range files {
-			peer := &fileToCheck{f: file, linesDone: newBitVector(len(file.lines))}
+			peer := &fileToCheck{f: file, linesDone: newBitVector(len(file.lines)), search: search, fileID: idx}
 			for line := range file.lines {
 				if random.IntN(12) == 0 {
 					peer.linesDone.set(line, true)
